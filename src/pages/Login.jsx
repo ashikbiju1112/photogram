@@ -2,7 +2,7 @@ import { supabase } from "../lib/supabase";
 
 export default function Login() {
   const loginWithGoogle = async () => {
-    await supabase.auth.signInWithOAuth({
+    supabase.auth.signInWithOAuth({
   provider: "google",
   options: {
     redirectTo: "https://photogram-live.vercel.app/#/auth",

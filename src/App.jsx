@@ -1,8 +1,9 @@
 import { Routes, Route } from "react-router-dom";
+import Login from "./Login";
 import ChatLayout from "./ChatLayout";
 import AuthCallback from "./pages/AuthCallback";
 
-function App() {
+export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Login />} />
@@ -11,5 +12,3 @@ function App() {
     </Routes>
   );
 }
-
-export default App;
