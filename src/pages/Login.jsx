@@ -3,11 +3,12 @@ import { supabase } from "../lib/supabase";
 export default function Login() {
   const loginWithGoogle = async () => {
     await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: window.location.origin + "/chat",
-      },
-    });
+  provider: "google",
+  options: {
+    redirectTo: "https://photogram-live.vercel.app/#/chat",
+  },
+});
+
   };
 
   return (
