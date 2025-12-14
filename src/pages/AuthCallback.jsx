@@ -8,14 +8,12 @@ export default function AuthCallback() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) {
-        // ✅ clean URL
-        window.location.hash = "";
-
-        // ✅ go to chat
         navigate("/chat", { replace: true });
+      } else {
+        navigate("/", { replace: true });
       }
     });
-  }, [navigate]);
+  }, []);
 
   return <div>Signing you in…</div>;
 }
