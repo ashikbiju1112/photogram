@@ -5,13 +5,11 @@ import UserSearch from "./UserSearch";
 
 
 export default function ChatLayout() {
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
-  const [user, setUser] = useState(null);
-  const [typing, setTyping] = useState(false);
-  const typingChannel = supabase.channel("typing");
-  
   const [activeConversation, setActiveConversation] = useState(null);
   const [activeUser, setActiveUser] = useState(null);
   const [conversations, setConversations] = useState([]);
@@ -36,29 +34,32 @@ if (!user) {
   return <div style={{ padding: 20 }}>Not authenticated</div>;
 }
 
+useEffect(() => {
+  if (!user) return;
+  fetchConversations();
+}, [user]);
+
 
 
 
   
  useEffect(() => {
-  // 1️⃣ Restore session on refresh
-  supabase.auth.getSession().then(({ data }) => {
-    setUser(data.session?.user ?? null);
-    setLoading(false);
-  });
-
-  // 2️⃣ Listen to auth changes
-  const { data: listener } = supabase.auth.onAuthStateChange(
-    (_event, session) => {
-      setUser(session?.user ?? null);
+    // Initial session
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null);
       setLoading(false);
-    }
-  );
+    });
 
-  return () => {
-    listener.subscription.unsubscribe();
-  };
-}, []);
+    // Listen for auth changes
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setUser(session?.user ?? null);
+        setLoading(false);
+      }
+    );
+
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
 useEffect(() => {
   if (!user) return;
