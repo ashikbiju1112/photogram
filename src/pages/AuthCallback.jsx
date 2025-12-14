@@ -6,17 +6,24 @@ export default function AuthCallback() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const check = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) {
-        navigate("/chat", { replace: true });
-      } else {
-        navigate("/", { replace: true });
-      }
-    };
+    async function handleAuth() {
+      // ⬇️ This processes the hash token
+      const { error } = await supabase.auth.getSession();
 
-    check();
-  }, []);
+      if (error) {
+        console.error(error);
+        return;
+      }
+
+      // ⬇️ IMPORTANT: remove token from URL
+      window.location.hash = "";
+
+      // ⬇️ Go to chat cleanly
+      navigate("/chat", { replace: true });
+    }
+
+    handleAuth();
+  }, [navigate]);
 
   return <div>Signing you in…</div>;
 }
