@@ -5,6 +5,7 @@ import UserSearch from "./UserSearch";
 
 
 export default function ChatLayout() {
+  const [loading, setLoading] = useState(true);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [user, setUser] = useState(null);
@@ -27,60 +28,77 @@ const [audioChunks, setAudioChunks] = useState([]);
 
   const receiverId = user?.id; // temporary
 
-if (!user) {
+if (loading) {
   return <div style={{ padding: 20 }}>Loading session…</div>;
 }
+
+if (!user) {
+  return <div style={{ padding: 20 }}>Not authenticated</div>;
+}
+
+
 
 
   
  useEffect(() => {
-  async function init() {
-    const { data } = await supabase.auth.getUser();
-    if (!data.user) return;
+  // 1️⃣ Restore session on refresh
+  supabase.auth.getSession().then(({ data }) => {
+    setUser(data.session?.user ?? null);
+    setLoading(false);
+  });
 
-    setUser(data.user);
-    fetchConversations();
+  // 2️⃣ Listen to auth changes
+  const { data: listener } = supabase.auth.onAuthStateChange(
+    (_event, session) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    }
+  );
 
-    fetchConversations(data.user.id);
-
-    supabase
-      .channel("messages-channel")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-        },
-        (payload) => {
-          setMessages((prev) => [...prev, payload.new]);
-        }
-      )
-      .subscribe();
-     typingChannel.on("broadcast", { event: "typing" }, (payload) => {
-    setTyping(payload.payload.typing);
-  })
-  .subscribe();
-
-const presence = supabase.channel("online", {
-  config: { presence: { key: user.id } },
-});
-
-presence.subscribe(async (status) => {
-  if (status === "SUBSCRIBED") {
-    await presence.track({ online: true });
-  }
-});
-
-  }
-
-  init();
-
-  
-return () => {
-    supabase.removeChannel(typingChannel);
+  return () => {
+    listener.subscription.unsubscribe();
   };
 }, []);
+
+useEffect(() => {
+  if (!user) return;
+
+  fetchConversations();
+
+  const msgChannel = supabase
+    .channel("messages-channel")
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "messages" },
+      (payload) => {
+        setMessages((prev) => [...prev, payload.new]);
+      }
+    )
+    .subscribe();
+
+  typingChannel
+    .on("broadcast", { event: "typing" }, (payload) => {
+      setTyping(payload.payload.typing);
+    })
+    .subscribe();
+
+  const presence = supabase.channel("online", {
+    config: { presence: { key: user.id } },
+  });
+
+  presence.subscribe(async (status) => {
+    if (status === "SUBSCRIBED") {
+      await presence.track({ online: true });
+    }
+  });
+
+  return () => {
+    supabase.removeChannel(msgChannel);
+    supabase.removeChannel(typingChannel);
+    supabase.removeChannel(presence);
+  };
+}, [user]);
+
 
 async function openConversation(otherUser) {
   // find existing conversation between both users
