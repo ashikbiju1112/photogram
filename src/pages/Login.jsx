@@ -16,12 +16,20 @@ export default function Login() {
 
   const loginWithGoogle = async () => {
     await supabase.auth.signInWithOAuth({
+<<<<<<< HEAD
   provider: "google",
   options: {
     redirectTo: window.location.origin + "/#/auth",
   },
 });
 
+=======
+      provider: "google",
+      options: {
+        redirectTo: window.location.origin + "/#/auth",
+      },
+    });
+>>>>>>> a92627325231b7ddb989600ea7012808cfc1123d
   };
 
   return (
