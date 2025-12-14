@@ -28,8 +28,9 @@ const [audioChunks, setAudioChunks] = useState([]);
   const receiverId = user?.id; // temporary
 
 if (!user) {
-    return <div style={{ padding: 20 }}>Loading session…</div>;
+  return <div style={{ padding: 20 }}>Loading session…</div>;
 }
+
 
   
  useEffect(() => {
