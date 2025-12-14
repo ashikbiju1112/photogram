@@ -1,14 +1,15 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Login from "./pages/Login";
-import Chat from "./pages/Chat";
+import { Routes, Route } from "react-router-dom";
+import ChatLayout from "./ChatLayout";
+import AuthCallback from "./pages/AuthCallback";
 
-export default function App() {
+function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Login />} />
-        <Route path="/chat" element={<Chat />} />
-      </Routes>
-    </BrowserRouter>
+    <Routes>
+      <Route path="/" element={<Login />} />
+      <Route path="/auth" element={<AuthCallback />} />
+      <Route path="/chat" element={<ChatLayout />} />
+    </Routes>
   );
 }
+
+export default App;
