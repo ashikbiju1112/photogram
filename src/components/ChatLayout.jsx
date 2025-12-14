@@ -27,6 +27,11 @@ const [audioChunks, setAudioChunks] = useState([]);
 
   const receiverId = user?.id; // temporary
 
+if (!user) {
+    return <div style={{ padding: 20 }}>Loading session…</div>;
+}
+
+  
  useEffect(() => {
   async function init() {
     const { data } = await supabase.auth.getUser();
