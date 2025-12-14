@@ -6,14 +6,22 @@ export default function AuthCallback() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) {
-        navigate("/chat");
-      } else {
-        navigate("/");
-      }
-    });
-  }, []);
+    const run = async () => {
+      const { error } = await supabase.auth.getSession();
 
-  return <p>Signing you in…</p>;
+      if (error) {
+        console.error("Auth error:", error.message);
+      }
+
+      // ✅ ALWAYS clean the hash
+      window.location.hash = "";
+
+      // ✅ Go to chat
+      navigate("/chat", { replace: true });
+    };
+
+    run();
+  }, [navigate]);
+
+  return <div style={{ padding: 20 }}>Signing you in…</div>;
 }
