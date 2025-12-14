@@ -1,6 +1,6 @@
 import { useEffect } from "react";
-import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "../lib/supabase";
 
 export default function AuthCallback() {
   const navigate = useNavigate();
@@ -8,12 +8,10 @@ export default function AuthCallback() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) {
-        navigate("/chat");
-      } else {
-        navigate("/");
+        navigate("/chat", { replace: true });
       }
     });
   }, []);
 
-  return <p>Signing you in…</p>;
+  return <div>Signing you in…</div>;
 }
