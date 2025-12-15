@@ -26,13 +26,7 @@ const [audioChunks, setAudioChunks] = useState([]);
 
   const receiverId = user?.id; // temporary
 
-if (loading) {
-  return <div style={{ padding: 20 }}>Loading session…</div>;
-}
 
-if (!user) {
-  return <div style={{ padding: 20 }}>Not authenticated</div>;
-}
 
 useEffect(() => {
   if (!user) return;
@@ -222,6 +216,14 @@ useEffect(() => {
   return () => supabase.removeChannel(channel);
 }, [activeConversation]);
 
+
+if (loading) {
+  return <div style={{ padding: 20 }}>Loading session…</div>;
+}
+
+if (!user) {
+  return <div style={{ padding: 20 }}>Not authenticated</div>;
+}
 
 
 async function fetchConversations() {
