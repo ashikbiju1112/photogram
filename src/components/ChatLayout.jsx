@@ -14,6 +14,7 @@ export default function ChatLayout() {
   const [activeUser, setActiveUser] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [typing, setTyping] = useState(false);
+const typingChannel = supabase.channel("typing");
 
 
 
@@ -29,12 +30,15 @@ const [audioChunks, setAudioChunks] = useState([]);
 
 
 
-useEffect(() => {
+
+/*useEffect(() => {
   if (!user) return;
   fetchConversations();
+}, [user]);*/
+
+useEffect(() => {
+  console.log("USER:", user);
 }, [user]);
-
-
 
 
   
