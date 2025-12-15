@@ -73,11 +73,15 @@ useEffect(() => {
   fetchConversations();
 
   
+  presence.on("presence", { event: "sync" }, () => {
+    const state = presence.presenceState();
+    const online = {};
 
+    Object.keys(state).forEach((id) => {
+      online[id] = true;
+    });
 
-
-  const presence = supabase.channel("online", {
-    config: { presence: { key: user.id } },
+    setOnlineUsers(online);
   });
 
   presence.subscribe(async (status) => {
@@ -87,7 +91,6 @@ useEffect(() => {
   });
 
   return () => {
-    //supabase.removeChannel(typingChannel);
     supabase.removeChannel(presence);
   };
 }, [user]);
@@ -399,8 +402,19 @@ async function fetchConversations() {
       <div>
         <div className="username">{activeUser.username}</div>
         <div className="status">
+  <span
+    style={{
+      display: "inline-block",
+      width: 8,
+      height: 8,
+      borderRadius: "50%",
+      marginRight: 6,
+      background: onlineUsers[activeUser?.id] ? "limegreen" : "gray",
+    }}
+  />
   {onlineUsers[activeUser?.id] ? "Online" : "Offline"}
 </div>
+
 
       </div>
     </div>
