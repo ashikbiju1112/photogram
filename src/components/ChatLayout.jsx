@@ -72,9 +72,14 @@ useEffect(() => {
 
   fetchConversations();
 
-  
-  presence.on("presence", { event: "sync" }, () => {
-    const state = presence.presenceState();
+  const presenceChannel = supabase.channel("online", {
+    config: {
+      presence: { key: user.id },
+    },
+  });
+
+  presenceChannel.on("presence", { event: "sync" }, () => {
+    const state = presenceChannel.presenceState();
     const online = {};
 
     Object.keys(state).forEach((id) => {
@@ -84,14 +89,14 @@ useEffect(() => {
     setOnlineUsers(online);
   });
 
-  presence.subscribe(async (status) => {
+  presenceChannel.subscribe(async (status) => {
     if (status === "SUBSCRIBED") {
-      await presence.track({ online: true });
+      await presenceChannel.track({ online: true });
     }
   });
 
   return () => {
-    supabase.removeChannel(presence);
+    supabase.removeChannel(presenceChannel);
   };
 }, [user]);
 
