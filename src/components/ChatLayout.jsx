@@ -407,18 +407,15 @@ async function fetchConversations() {
       <div>
         <div className="username">{activeUser.username}</div>
         <div className="status">
-  <span
-    style={{
-      display: "inline-block",
-      width: 8,
-      height: 8,
-      borderRadius: "50%",
-      marginRight: 6,
-      background: onlineUsers[activeUser?.id] ? "limegreen" : "gray",
-    }}
-  />
-  {onlineUsers[activeUser?.id] ? "Online" : "Offline"}
+  {onlineUsers[activeUser?.id] && <span className="online-dot" />}
+  {typing
+    ? "Typing…"
+    : onlineUsers[activeUser?.id]
+    ? "Online"
+    : "Offline"}
 </div>
+
+
 
 
       </div>

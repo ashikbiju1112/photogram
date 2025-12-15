@@ -262,3 +262,12 @@
   margin-left: auto;
 }
 
+.online-dot {
+  width: 8px;
+  height: 8px;
+  background: #00ff6a;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+}
+
