@@ -16,6 +16,8 @@ export default function ChatLayout() {
   const [typing, setTyping] = useState(false);
 //const typingChannel = supabase.channel("typing");
 const [onlineUsers, setOnlineUsers] = useState({});
+const [typingUser, setTypingUser] = useState(null);
+
 
 
 
@@ -236,14 +238,16 @@ useEffect(() => {
     )
     .subscribe();
 const typingChannel = supabase
-  .channel(`typing-${activeConversation}`)
-  .on("broadcast", { event: "typing" }, (payload) => {
-    if (payload.payload.userId !== user.id) {
-      setTyping(true);
-      setTimeout(() => setTyping(false), 1500);
-    }
-  })
-  .subscribe();
+    .channel(`typing-${activeConversation}`)
+    .on("broadcast", { event: "typing" }, (payload) => {
+      if (payload.payload.userId !== user.id) {
+        setTypingUser(payload.payload.username);
+
+        // auto clear after 1.5s
+        setTimeout(() => setTypingUser(null), 1500);
+      }
+    })
+    .subscribe();
 
   return () =>{ supabase.removeChannel(msgChannel);
   supabase.removeChannel(typingChannel);};
@@ -432,11 +436,12 @@ async function fetchConversations() {
 
 
 
-{typing && (
+{typingUser && (
   <div style={{ padding: 6, fontSize: 12, opacity: 0.7 }}>
-    Typing…
+    {typingUser} is typing…
   </div>
 )}
+
 
 
         <div className="chat-input">
@@ -452,20 +457,20 @@ async function fetchConversations() {
   value={text}
   placeholder="Message..."
   onChange={(e) => {
-    setText(e.target.value);
+  setText(e.target.value);
 
-    if (!activeConversation) return;
+  if (!activeConversation) return;
 
-    supabase
-      .channel(`typing-${activeConversation}`)
-      .send({
-        type: "broadcast",
-        event: "typing",
-        payload: {
-          userId: user.id,
-        },
-      });
-  }}
+  supabase.channel(`typing-${activeConversation}`).send({
+    type: "broadcast",
+    event: "typing",
+    payload: {
+      userId: user.id,
+      username: user.email.split("@")[0], // or username from profile
+    },
+  });
+}}
+
 />
 
 
