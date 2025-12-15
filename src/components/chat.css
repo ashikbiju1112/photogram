@@ -8,8 +8,8 @@
 
 /* SIDEBAR */
 .sidebar {
- width: 320px;
-  min-width: 320px;
+  width: 280px;
+  min-width: 280px;
   background: #f5f5f5;
   border-right: 1px solid #ddd;
   display: flex;
@@ -74,11 +74,12 @@
 }
 
 .chat-header {
-   display: flex;
+  height: 56px;
+  display: flex;
   align-items: center;
-  padding: 12px 16px;
+  padding: 0 16px;
   border-bottom: 1px solid #e5e5e5;
-  background: #972020;
+  background: #000000;
 }
 
 .chat-header-user {
@@ -119,6 +120,8 @@
   margin-bottom: 6px;
   word-wrap: break-word;
   position: relative;
+  word-break: break-word;
+  white-space: pre-wrap;
 }
 
 .msg.left {
