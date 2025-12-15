@@ -62,6 +62,9 @@ useEffect(() => {
     return () => listener.subscription.unsubscribe();
   }, []);
 
+
+
+
 useEffect(() => {
   if (!user) return;
 
@@ -82,10 +85,14 @@ useEffect(() => {
   });
 
   return () => {
-    supabase.removeChannel(typingChannel);
+    //supabase.removeChannel(typingChannel);
     supabase.removeChannel(presence);
   };
 }, [user]);
+
+
+
+
 
 
 /*useEffect(() => {
