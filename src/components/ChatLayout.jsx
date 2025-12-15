@@ -14,7 +14,8 @@ export default function ChatLayout() {
   const [activeUser, setActiveUser] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [typing, setTyping] = useState(false);
-const typingChannel = supabase.channel("typing");
+//const typingChannel = supabase.channel("typing");
+const [onlineUsers, setOnlineUsers] = useState({});
 
 
 
@@ -27,6 +28,7 @@ const [audioChunks, setAudioChunks] = useState([]);
 
 
   const receiverId = user?.id; // temporary
+  const isAdmin = user?.email === "gamingwithtoxic0@gmail.com";
 
 
 
@@ -65,22 +67,9 @@ useEffect(() => {
 
   fetchConversations();
 
-  const msgChannel = supabase
-    .channel("messages-channel")
-    .on(
-      "postgres_changes",
-      { event: "INSERT", schema: "public", table: "messages" },
-      (payload) => {
-        setMessages((prev) => [...prev, payload.new]);
-      }
-    )
-    .subscribe();
+  
 
-  typingChannel
-    .on("broadcast", { event: "typing" }, (payload) => {
-      setTyping(payload.payload.typing);
-    })
-    .subscribe();
+
 
   const presence = supabase.channel("online", {
     config: { presence: { key: user.id } },
@@ -93,11 +82,28 @@ useEffect(() => {
   });
 
   return () => {
-    supabase.removeChannel(msgChannel);
     supabase.removeChannel(typingChannel);
     supabase.removeChannel(presence);
   };
 }, [user]);
+
+
+/*useEffect(() => {
+  if (!activeConversation) return;
+
+  const channel = supabase
+    .channel(`typing-${activeConversation}`)
+    .on("broadcast", { event: "typing" }, (payload) => {
+      if (payload.payload.userId !== user.id) {
+        setTyping(true);
+        setTimeout(() => setTyping(false), 1000);
+      }
+    })
+    .subscribe();
+
+  return () => supabase.removeChannel(channel);
+}, [activeConversation]);*/
+
 
 
 async function openConversation(otherUser) {
@@ -203,7 +209,7 @@ useEffect(() => {
 useEffect(() => {
   if (!activeConversation) return;
 
-  const channel = supabase
+  const msgChannel = supabase
     .channel(`messages-${activeConversation}`)
     .on(
       "postgres_changes",
@@ -213,12 +219,27 @@ useEffect(() => {
         filter: `conversation_id=eq.${activeConversation}`,
       },
       (payload) => {
-        setMessages((prev) => [...prev, payload.new]);
+        setMessages((prev) =>
+  prev.some((m) => m.id === payload.new.id)
+    ? prev
+    : [...prev, payload.new]
+);
+
       }
     )
     .subscribe();
+const typingChannel = supabase
+  .channel(`typing-${activeConversation}`)
+  .on("broadcast", { event: "typing" }, (payload) => {
+    if (payload.payload.userId !== user.id) {
+      setTyping(true);
+      setTimeout(() => setTyping(false), 1500);
+    }
+  })
+  .subscribe();
 
-  return () => supabase.removeChannel(channel);
+  return () =>{ supabase.removeChannel(msgChannel);
+  supabase.removeChannel(typingChannel);};
 }, [activeConversation]);
 
 
@@ -229,6 +250,10 @@ if (loading) {
 if (!user) {
   return <div style={{ padding: 20 }}>Not authenticated</div>;
 }
+if (user?.is_banned) {
+  return <div>You are banned</div>;
+}
+
 
 
 async function fetchConversations() {
@@ -241,7 +266,9 @@ async function fetchConversations() {
         messages (
           id,
           content,
-          created_at
+          created_at,
+          read,
+          receiver_id
         ),
         participants (
           user_id,
@@ -257,6 +284,7 @@ async function fetchConversations() {
 
   setConversations(data || []);
 }
+
 
 
 
@@ -309,6 +337,10 @@ async function fetchConversations() {
       convo.messages?.sort(
         (a, b) => new Date(b.created_at) - new Date(a.created_at)
       )[0];
+      const unreadCount = convo.messages?.filter(
+  m => !m.read && m.receiver_id === user.id
+).length;
+
 
     return (
       <button
@@ -327,8 +359,13 @@ async function fetchConversations() {
         <div>
           <div className="name">{otherUser?.username}</div>
           <div className="preview">
-            {lastMessage?.content || "No messages yet"}
-          </div>
+  {lastMessage?.content || "No messages yet"}
+</div>
+
+{unreadCount > 0 && (
+  <span className="unread-badge">{unreadCount}</span>
+)}
+
         </div>
       </button>
     );
@@ -350,7 +387,10 @@ async function fetchConversations() {
       />
       <div>
         <div className="username">{activeUser.username}</div>
-        <div className="status">Active now</div>
+        <div className="status">
+  {onlineUsers[activeUser?.id] ? "Online" : "Offline"}
+</div>
+
       </div>
     </div>
   ) : (
@@ -402,10 +442,25 @@ async function fetchConversations() {
   </button>
 
   <input
-    value={text}
-    placeholder="Message..."
-    onChange={(e) => setText(e.target.value)}
-  />
+  value={text}
+  placeholder="Message..."
+  onChange={(e) => {
+    setText(e.target.value);
+
+    if (!activeConversation) return;
+
+    supabase
+      .channel(`typing-${activeConversation}`)
+      .send({
+        type: "broadcast",
+        event: "typing",
+        payload: {
+          userId: user.id,
+        },
+      });
+  }}
+/>
+
 
   <button className="send" onClick={sendMessage}>
     ➤
