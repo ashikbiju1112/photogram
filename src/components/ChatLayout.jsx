@@ -13,6 +13,7 @@ export default function ChatLayout() {
   const [activeConversation, setActiveConversation] = useState(null);
   const [activeUser, setActiveUser] = useState(null);
   const [conversations, setConversations] = useState([]);
+  const [typing, setTyping] = useState(false);
 
 
 
