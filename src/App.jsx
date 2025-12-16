@@ -4,7 +4,8 @@ import ChatLayout from "./components/ChatLayout";
 import AuthCallback from "./pages/AuthCallback";
 import AdminPanel from "./admin/AdminPanel";
 import { useAdmin } from "./hooks/useAdmin";
-//import { useAuth } from "@/hooks/useAuth";
+//import { useAuth } from "../hooks/useAuth";
+
 
 
 
