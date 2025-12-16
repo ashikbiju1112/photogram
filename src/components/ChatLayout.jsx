@@ -326,6 +326,18 @@ if (isBanned) {
 
 
 async function fetchConversations() {
+  // 1️⃣ Check if user participates in anything
+  const { data: parts } = await supabase
+    .from("participants")
+    .select("conversation_id")
+    .eq("user_id", user.id);
+
+  if (!parts || parts.length === 0) {
+    setConversations([]);
+    return; // ⛔ STOP HERE
+  }
+
+  // 2️⃣ Fetch full conversation graph
   const { data } = await supabase
     .from("participants")
     .select(`
@@ -353,6 +365,7 @@ async function fetchConversations() {
 
   setConversations(data || []);
 }
+
 
 
 
