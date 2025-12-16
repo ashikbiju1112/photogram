@@ -6,24 +6,30 @@ export default function UserSearch({ onSelect }) {
   const [results, setResults] = useState([]);
 
   useEffect(() => {
-    if (!query) {
-      setResults([]);
+  if (!query) {
+    setResults([]);
+    return;
+  }
+
+  const search = async () => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, username, avatar_url")
+      .ilike("username", `%${query}%`)
+      .limit(10);
+
+    console.log("SEARCH RESULT:", data, error);
+
+    if (error) {
+      console.error("Search error:", error);
       return;
     }
 
-    const search = async () => {
-      const { data } = await supabase
-        .from("profiles")
-        .select("id, username, avatar_url")
-        .ilike("username", `%${query}%`)
-        .limit(10);
+    setResults(data || []);
+  };
 
-      setResults(data || []);
-      console.log("SEARCH RESULT:", data, error);
-    };
-
-    search();
-  }, [query]);
+  search();
+}, [query]);
 
   return (
     <div className="user-search">
