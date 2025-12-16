@@ -19,7 +19,7 @@ export default function ChatLayout() {
 //const typingChannel = supabase.channel("typing");
 const [onlineUsers, setOnlineUsers] = useState({});
 const [typingUser, setTypingUser] = useState(null);
-
+const { userr } = useAuth(); // ✅ REQUIRED
 
 
 
@@ -272,14 +272,15 @@ if (loading) {
 if (!user) {
   return <div style={{ padding: 20 }}>Not authenticated</div>;
 }
-if (user?.is_banned) {
+if (userr?.is_banned) {
   return (
     <div style={{ padding: 40, textAlign: "center" }}>
       <h2>🚫 You are banned</h2>
-      <p>Contact support if you think this is a mistake.</p>
+      <p>Contact support if this is a mistake.</p>
     </div>
   );
 }
+
 
 
 async function fetchConversations() {
