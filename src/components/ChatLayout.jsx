@@ -103,28 +103,36 @@ const [audioChunks, setAudioChunks] = useState([]);
     supabase.removeChannel(presenceChannel);
   };
 }, [user]);*/useEffect(() => {
-  if (loading || !user) return;
+  useEffect(() => {
+  if (loading || !user?.id) return;
 
   fetchConversations();
 
   const presenceChannel = supabase.channel("online", {
-    config: {
-      presence: { key: user.id },
-    },
+    config: { presence: { key: user.id } },
   });
 
   presenceChannel.on("presence", { event: "sync" }, () => {
-  const state = presenceChannel.presenceState();
-  if (!state) return;
+    const state = presenceChannel.presenceState();
+    if (!state) return;
 
-  const online = {};
+    const online = {};
+    Object.keys(state).forEach((id) => {
+      online[id] = true;
+    });
 
-  Object.keys(state).forEach((id) => {
-    online[id] = true;
+    setOnlineUsers(online);
   });
 
-  setOnlineUsers(online);
-});
+  presenceChannel.subscribe(async (status) => {
+    if (status === "SUBSCRIBED") {
+      await presenceChannel.track({ online: true });
+    }
+  });
+
+  return () => supabase.removeChannel(presenceChannel);
+}, [user?.id, loading]);
+
 
 
   presenceChannel.subscribe(async (status) => {
@@ -326,18 +334,6 @@ if (isBanned) {
 
 
 async function fetchConversations() {
-  // 1️⃣ Check if user participates in anything
-  const { data: parts } = await supabase
-    .from("participants")
-    .select("conversation_id")
-    .eq("user_id", user.id);
-
-  if (!parts || parts.length === 0) {
-    setConversations([]);
-    return; // ⛔ STOP HERE
-  }
-
-  // 2️⃣ Fetch full conversation graph
   const { data } = await supabase
     .from("participants")
     .select(`
@@ -365,7 +361,6 @@ async function fetchConversations() {
 
   setConversations(data || []);
 }
-
 
 
 
@@ -497,38 +492,26 @@ async function fetchConversations() {
 
 
 
-            {!activeConversation ? (
-  <div style={{ padding: 20, opacity: 0.6 }}>
-    Select a chat to start messaging
-  </div>
+            
+{!activeConversation ? (
+  conversations.length === 0 ? (
+    <div style={{ padding: 40, textAlign: "center", opacity: 0.7 }}>
+      <h3>No conversations yet</h3>
+      <p>Search for a user to start chatting</p>
+    </div>
+  ) : (
+    <div style={{ padding: 20, opacity: 0.6 }}>
+      Select a chat to start messaging
+    </div>
+  )
 ) : (
   <div className="messages">
-    {messages.map((msg, i) => {
-      const isMe = msg.sender_id === user?.id;
-
+    {messages.map((msg) => {
+      const isMe = msg.sender_id === user.id;
       return (
         <div key={msg.id} className={isMe ? "msg right" : "msg left"}>
-  {msg.content}
-
-  {isAdmin && (
-    <button
-      onClick={() =>
-        supabase.from("messages").delete().eq("id", msg.id)
-      }
-      style={{
-        marginLeft: 8,
-        fontSize: 10,
-        color: "red",
-        background: "none",
-        border: "none",
-        cursor: "pointer",
-      }}
-    >
-      Delete
-    </button>
-  )}
-</div>
-
+          {msg.content}
+        </div>
       );
     })}
   </div>
