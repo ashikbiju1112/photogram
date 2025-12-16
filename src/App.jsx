@@ -4,11 +4,13 @@ import ChatLayout from "./components/ChatLayout";
 import AuthCallback from "./pages/AuthCallback";
 import AdminPanel from "./admin/AdminPanel";
 import { useAdmin } from "./hooks/useAdmin";
+//import { useAuth } from "@/hooks/useAuth";
 
 
 
 export default function App() {
-  const isAdmin = useAdmin(user);
+  const { isAdmin, loading } = useAdmin();
+
 if (loading) {
     return <div style={{ padding: 20 }}>Checking permissions…</div>;
   }

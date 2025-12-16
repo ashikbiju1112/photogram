@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import "./chat.css";
 import UserSearch from "./UserSearch";
+import { useAuth } from "@/hooks/useAuth";
 
 
 export default function ChatLayout() {
@@ -17,6 +18,7 @@ export default function ChatLayout() {
 //const typingChannel = supabase.channel("typing");
 const [onlineUsers, setOnlineUsers] = useState({});
 const [typingUser, setTypingUser] = useState(null);
+
 
 
 
