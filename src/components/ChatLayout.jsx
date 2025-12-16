@@ -34,7 +34,7 @@ const [audioChunks, setAudioChunks] = useState([]);
 
   const receiverId = user?.id; // temporary
   const isAdmin = user?.email === "gamingwithtoxic0@gmail.com";
-
+const { isBanned, bannedUntil } = useAuth();
 
 
 
@@ -281,6 +281,18 @@ if (userr?.is_banned) {
   );
 }
 
+
+
+if (isBanned) {
+  return (
+    <div style={{ textAlign: "center", padding: 40 }}>
+      <h2>🚫 You are banned</h2>
+      {bannedUntil && (
+        <p>Banned until: {new Date(bannedUntil).toLocaleString()}</p>
+      )}
+    </div>
+  );
+}
 
 
 async function fetchConversations() {
