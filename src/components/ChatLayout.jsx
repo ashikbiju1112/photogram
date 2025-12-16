@@ -7,8 +7,8 @@ import { useAuth } from "../hooks/useAuth";
 
 
 export default function ChatLayout() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  //const [user, setUser] = useState(null);
+  //const [loading, setLoading] = useState(true);
 
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
@@ -19,7 +19,8 @@ export default function ChatLayout() {
 //const typingChannel = supabase.channel("typing");
 const [onlineUsers, setOnlineUsers] = useState({});
 const [typingUser, setTypingUser] = useState(null);
-const { userr } = useAuth(); // ✅ REQUIRED
+//const { userr } = useAuth(); // ✅ REQUIRED
+const { user, loading, isBanned, bannedUntil, role } = useAuth();
 
 
 
@@ -33,8 +34,8 @@ const [audioChunks, setAudioChunks] = useState([]);
 
 
   const receiverId = user?.id; // temporary
-  const isAdmin = user?.email === "gamingwithtoxic0@gmail.com";
-const { isBanned, bannedUntil } = useAuth();
+  //const isAdmin = user?.email === "gamingwithtoxic0@gmail.com";
+  const isAdmin = role === "admin";
 
 
 
@@ -43,13 +44,13 @@ const { isBanned, bannedUntil } = useAuth();
   fetchConversations();
 }, [user]);*/
 
-useEffect(() => {
+/*useEffect(() => {
   console.log("USER:", user);
-}, [user]);
+}, [user]);*/
 
 
   
- useEffect(() => {
+/* useEffect(() => {
     // Initial session
     supabase.auth.getSession().then(({ data }) => {
       setUser(data.session?.user ?? null);
@@ -65,12 +66,12 @@ useEffect(() => {
     );
 
     return () => listener.subscription.unsubscribe();
-  }, []);
+  }, []);*/
 
 
 
 
-useEffect(() => {
+/*useEffect(() => {
   if (!user) return;
 
   fetchConversations();
@@ -101,7 +102,37 @@ useEffect(() => {
   return () => {
     supabase.removeChannel(presenceChannel);
   };
-}, [user]);
+}, [user]);*/useEffect(() => {
+  if (loading || !user) return;
+
+  fetchConversations();
+
+  const presenceChannel = supabase.channel("online", {
+    config: { presence: { key: user.id } },
+  });
+
+  presenceChannel.on("presence", { event: "sync" }, () => {
+    const state = presenceChannel.presenceState();
+    const online: any = {};
+
+    Object.keys(state).forEach((id) => {
+      online[id] = true;
+    });
+
+    setOnlineUsers(online);
+  });
+
+  presenceChannel.subscribe(async (status) => {
+    if (status === "SUBSCRIBED") {
+      await presenceChannel.track({ online: true });
+    }
+  });
+
+  return () => {
+    supabase.removeChannel(presenceChannel);
+  };
+}, [user, loading]);
+
 
 
 
@@ -272,14 +303,7 @@ if (loading) {
 if (!user) {
   return <div style={{ padding: 20 }}>Not authenticated</div>;
 }
-if (userr?.is_banned) {
-  return (
-    <div style={{ padding: 40, textAlign: "center" }}>
-      <h2>🚫 You are banned</h2>
-      <p>Contact support if this is a mistake.</p>
-    </div>
-  );
-}
+
 
 
 
