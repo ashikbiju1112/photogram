@@ -19,6 +19,7 @@ export default function UserSearch({ onSelect }) {
         .limit(10);
 
       setResults(data || []);
+      console.log("SEARCH RESULT:", data, error);
     };
 
     search();
