@@ -270,9 +270,13 @@ if (!user) {
   return <div style={{ padding: 20 }}>Not authenticated</div>;
 }
 if (user?.is_banned) {
-  return <div>You are banned</div>;
+  return (
+    <div style={{ padding: 40, textAlign: "center" }}>
+      <h2>🚫 You are banned</h2>
+      <p>Contact support if you think this is a mistake.</p>
+    </div>
+  );
 }
-
 
 
 async function fetchConversations() {
@@ -303,6 +307,8 @@ async function fetchConversations() {
 
   setConversations(data || []);
 }
+
+
 
 
 
@@ -443,8 +449,27 @@ async function fetchConversations() {
 
       return (
         <div key={msg.id} className={isMe ? "msg right" : "msg left"}>
-          {msg.content}
-        </div>
+  {msg.content}
+
+  {isAdmin && (
+    <button
+      onClick={() =>
+        supabase.from("messages").delete().eq("id", msg.id)
+      }
+      style={{
+        marginLeft: 8,
+        fontSize: 10,
+        color: "red",
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+      }}
+    >
+      Delete
+    </button>
+  )}
+</div>
+
       );
     })}
   </div>
