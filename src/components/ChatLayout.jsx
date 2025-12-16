@@ -108,19 +108,24 @@ const [audioChunks, setAudioChunks] = useState([]);
   fetchConversations();
 
   const presenceChannel = supabase.channel("online", {
-    config: { presence: { key: user.id } },
+    config: {
+      presence: { key: user.id },
+    },
   });
 
   presenceChannel.on("presence", { event: "sync" }, () => {
-    const state = presenceChannel.presenceState();
-    const online: any = {};
+  const state = presenceChannel.presenceState();
+  if (!state) return;
 
-    Object.keys(state).forEach((id) => {
-      online[id] = true;
-    });
+  const online = {};
 
-    setOnlineUsers(online);
+  Object.keys(state).forEach((id) => {
+    online[id] = true;
   });
+
+  setOnlineUsers(online);
+});
+
 
   presenceChannel.subscribe(async (status) => {
     if (status === "SUBSCRIBED") {
@@ -132,6 +137,7 @@ const [audioChunks, setAudioChunks] = useState([]);
     supabase.removeChannel(presenceChannel);
   };
 }, [user, loading]);
+
 
 
 
