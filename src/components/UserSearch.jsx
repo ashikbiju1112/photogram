@@ -47,7 +47,11 @@ export default function UserSearch({ onSelect }) {
   <button
     key={profile.id}
     className="user-result"
-    onClick={() => onSelect(profile)}
+    onClick={() => {
+  console.log("CLICKED USER:", profile);
+  onSelect(profile);
+}}
+
     style={{
       display: "flex",
       alignItems: "center",
