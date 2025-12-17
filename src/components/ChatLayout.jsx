@@ -167,40 +167,80 @@ const [audioChunks, setAudioChunks] = useState([]);
 
 
 async function openConversation(otherUser) {
-  // find existing conversation between both users
   console.log("OPEN CONVERSATION WITH:", otherUser);
 
   if (!user?.id || !otherUser?.id) {
     console.error("Missing user ids");
     return;
   }
-  const { data: convo } = await supabase
+
+  // 1️⃣ Get conversations where *I* am a participant
+  const { data: myParts, error: partErr } = await supabase
     .from("participants")
     .select("conversation_id")
-    .in("user_id", [user.id, otherUser.id]);
+    .eq("user_id", user.id);
 
-  if (convo?.length >= 2) {
-    const conversationId = convo[0].conversation_id;
-    setActiveConversation(conversationId);
-    fetchMessages(conversationId);
+  if (partErr) {
+    console.error("Participant fetch error:", partErr);
     return;
   }
 
-  // create new conversation
-  const { data: newConvo } = await supabase
+  const myConversationIds = myParts.map(p => p.conversation_id);
+
+  if (myConversationIds.length > 0) {
+    // 2️⃣ Check if other user is in any of those conversations
+    const { data: shared, error: sharedErr } = await supabase
+      .from("participants")
+      .select("conversation_id")
+      .eq("user_id", otherUser.id)
+      .in("conversation_id", myConversationIds);
+
+    if (sharedErr) {
+      console.error("Shared conversation error:", sharedErr);
+      return;
+    }
+
+    if (shared.length > 0) {
+      // ✅ Conversation already exists
+      const conversationId = shared[0].conversation_id;
+      setActiveConversation(conversationId);
+      setActiveUser(otherUser);
+      fetchMessages(conversationId);
+      return;
+    }
+  }
+
+  // 3️⃣ No conversation exists → create new
+  const { data: newConvo, error: convoErr } = await supabase
     .from("conversations")
     .insert({})
     .select()
     .single();
 
-  await supabase.from("participants").insert([
-    { conversation_id: newConvo.id, user_id: user.id },
-    { conversation_id: newConvo.id, user_id: otherUser.id },
-  ]);
+  if (convoErr) {
+    console.error("Conversation create error:", convoErr);
+    return;
+  }
 
+  // 4️⃣ Insert participants
+  const { error: insertErr } = await supabase
+    .from("participants")
+    .insert([
+      { conversation_id: newConvo.id, user_id: user.id },
+      { conversation_id: newConvo.id, user_id: otherUser.id },
+    ]);
+
+  if (insertErr) {
+    console.error("Insert participants error:", insertErr);
+    return;
+  }
+
+  // 5️⃣ Activate conversation
   setActiveConversation(newConvo.id);
+  setActiveUser(otherUser);
   fetchMessages(newConvo.id);
 }
+
 
 //meassage
 
