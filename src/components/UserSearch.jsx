@@ -13,10 +13,14 @@ export default function UserSearch({ onSelect }) {
 
   const search = async () => {
     const { data, error } = await supabase
-      .from("profiles")
-      .select("id, username, avatar_url")
-      .ilike("username", `%${query}%`)
-      .limit(10);
+  .from("profiles")
+  .select("id, username, avatar_url")
+  .ilike("username", `%${query}%`)
+  .limit(10);
+
+  console.log("SEARCH RESULT:", data);
+  console.log("SEARCH ERROR:", error);
+
 
     console.log("SEARCH RESULT:", data, error);
 
