@@ -26,7 +26,7 @@ export function AuthProvider({ children }) {
       }
     );
 
-    // 3️⃣ Cleanup (VERY IMPORTANT)
+    // 3️⃣ Cleanup
     return () => {
       mounted = false;
       listener.subscription.unsubscribe();
@@ -40,7 +40,6 @@ export function AuthProvider({ children }) {
   );
 }
 
-// Hook to use auth anywhere
 export function useAuth() {
   return useContext(AuthContext);
 }

@@ -102,16 +102,19 @@ const [audioChunks, setAudioChunks] = useState([]);
   return () => {
     supabase.removeChannel(presenceChannel);
   };
-}, [user]);*/useEffect(() => {
+}, [user]);*/
   useEffect(() => {
   if (loading || !user?.id) return;
 
+  // 1️⃣ Fetch conversations after login
   fetchConversations();
 
+  // 2️⃣ Create presence channel
   const presenceChannel = supabase.channel("online", {
     config: { presence: { key: user.id } },
   });
 
+  // 3️⃣ Listen for online users
   presenceChannel.on("presence", { event: "sync" }, () => {
     const state = presenceChannel.presenceState();
     if (!state) return;
@@ -124,27 +127,19 @@ const [audioChunks, setAudioChunks] = useState([]);
     setOnlineUsers(online);
   });
 
+  // 4️⃣ Subscribe once
   presenceChannel.subscribe(async (status) => {
     if (status === "SUBSCRIBED") {
       await presenceChannel.track({ online: true });
     }
   });
 
-  return () => supabase.removeChannel(presenceChannel);
-}, [user?.id, loading]);
-
-
-
-  presenceChannel.subscribe(async (status) => {
-    if (status === "SUBSCRIBED") {
-      await presenceChannel.track({ online: true });
-    }
-  });
-
+  // 5️⃣ Cleanup on unmount or user change
   return () => {
     supabase.removeChannel(presenceChannel);
   };
-}, [user, loading]);
+}, [loading, user?.id]);
+
 
 
 
@@ -334,7 +329,9 @@ if (isBanned) {
 
 
 async function fetchConversations() {
-  const { data } = await supabase
+  if (!user?.id) return; // ⛔ VERY IMPORTANT
+
+  const { data, error } = await supabase
     .from("participants")
     .select(`
       conversation_id,
@@ -359,8 +356,14 @@ async function fetchConversations() {
     `)
     .eq("user_id", user.id);
 
+  if (error) {
+    console.error("fetchConversations error:", error);
+    return;
+  }
+
   setConversations(data || []);
 }
+
 
 
 
@@ -540,21 +543,22 @@ async function fetchConversations() {
   value={text}
   placeholder="Message..."
   onChange={(e) => {
-  setText(e.target.value);
+    setText(e.target.value);
 
-  if (!activeConversation) return;
+    // 🛡️ PROTECTION FIX
+    if (!activeConversation || !user?.id) return;
 
-  supabase.channel(`typing-${activeConversation}`).send({
-    type: "broadcast",
-    event: "typing",
-    payload: {
-      userId: user.id,
-      username: user.email.split("@")[0], // or username from profile
-    },
-  });
-}}
-
+    supabase.channel(`typing-${activeConversation}`).send({
+      type: "broadcast",
+      event: "typing",
+      payload: {
+        userId: user.id,
+        username: user.email.split("@")[0],
+      },
+    });
+  }}
 />
+
 
 
   <button className="send" onClick={sendMessage}>
