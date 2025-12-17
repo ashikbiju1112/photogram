@@ -16,6 +16,7 @@ export default function UserSearch({ onSelect }) {
   .from("profiles")
   .select("id, username, avatar_url")
   .ilike("username", `%${query}%`)
+  .neq("id", (await supabase.auth.getUser()).data.user.id)
   .limit(10);
 
   console.log("SEARCH RESULT:", data);

@@ -168,6 +168,12 @@ const [audioChunks, setAudioChunks] = useState([]);
 
 async function openConversation(otherUser) {
   // find existing conversation between both users
+  console.log("OPEN CONVERSATION WITH:", otherUser);
+
+  if (!user?.id || !otherUser?.id) {
+    console.error("Missing user ids");
+    return;
+  }
   const { data: convo } = await supabase
     .from("participants")
     .select("conversation_id")
