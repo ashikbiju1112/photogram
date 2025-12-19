@@ -493,7 +493,8 @@ async function createGroup(name, memberIds) {
 
     const otherUser = convo.participants
   ?.map(p => p.profiles)
-  ?.find(p => p && p.id !== user.id) || null;
+  ?.find(p => p?.id && p.id !== user.id);
+
 
 
     const lastMessage =
@@ -505,7 +506,8 @@ async function createGroup(name, memberIds) {
 ).length;
 const displayName = convo.is_group
   ? convo.name
-  : otherUser.username;
+  : otherUser?.username || "Deleted User";
+
 
 
 
@@ -523,9 +525,15 @@ const displayName = convo.is_group
 
       >
         <div className="avatar-wrapper">
-  <img src={otherUser.avatar_url || "/avatar.png"} width={36} />
-  {onlineUsers[otherUser.id] && <span className="online-dot" />}
+  <img
+    src={otherUser?.avatar_url || "/avatar.png"}
+    width={36}
+  />
+  {otherUser?.id && onlineUsers[otherUser.id] && (
+    <span className="online-dot" />
+  )}
 </div>
+
 <button
   onClick={(e) => {
     e.stopPropagation();
@@ -536,7 +544,10 @@ const displayName = convo.is_group
 </button>
 
         <div>
-          <div className="name">{otherUser?.username}</div>
+          <div className="name">
+  {otherUser?.username || "Deleted User"}
+</div>
+
           <div className="preview">
   {lastMessage ? lastMessage.content : "No messages yet"}
 </div>
