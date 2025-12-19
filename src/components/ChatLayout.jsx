@@ -512,18 +512,19 @@ const displayName = convo.is_group
 
 
     return (
-      <button
-        key={convo.id}
-        className="conversation-item"
-        onClick={() => {
-  if (!otherUser) return;
+     <button
+  key={convo.id}
+  className="conversation-item"
+  disabled={!otherUser}
+  onClick={() => {
+    if (!otherUser) return;
 
-  setActiveConversation(convo.id);
-  setActiveUser(otherUser);
-  fetchMessages(convo.id);
-}}
+    setActiveConversation(convo.id);
+    setActiveUser(otherUser);
+    fetchMessages(convo.id);
+  }}
+>
 
-      >
         <div className="avatar-wrapper">
   <img
     src={otherUser?.avatar_url || "/avatar.png"}
@@ -582,14 +583,17 @@ const displayName = convo.is_group
 )}
 
       <div>
-        <div className="username">{activeUser.username}</div>
+        <div className="username">
+  {activeUser?.username || "Deleted User"}
+</div>
+
+
         <div className="status">
-  {onlineUsers[activeUser?.id] && <span className="online-dot" />}
-  {typing
-    ? "Typing…"
-    : onlineUsers[activeUser?.id]
-    ? "Online"
-    : "Offline"}
+  {activeUser?.id
+    ? onlineUsers[activeUser.id]
+      ? "Online"
+      : "Offline"
+    : "User no longer available"}
 </div>
 
 
@@ -655,7 +659,12 @@ const displayName = convo.is_group
 
   <input
   value={text}
-  placeholder="Message..."
+  disabled={!activeUser}
+  placeholder={
+    activeUser
+      ? "Message..."
+      : "You cannot message this user"
+  }
   onChange={(e) => {
     setText(e.target.value);
 
@@ -675,9 +684,14 @@ const displayName = convo.is_group
 
 
 
-  <button className="send" onClick={sendMessage}>
-    ➤
-  </button>
+  <button
+  className="send"
+  disabled={!activeUser}
+  onClick={sendMessage}
+>
+  ➤
+</button>
+
 </div>
 
 
