@@ -169,40 +169,29 @@ const [audioChunks, setAudioChunks] = useState([]);
 async function openConversation(otherUser) {
   console.log("OPEN CONVERSATION WITH:", otherUser);
 
-  if (!user?.id || !otherUser?.id) {
-    console.error("Missing user ids");
-    return;
-  }
-
-  // 1️⃣ Get conversations where *I* am a participant
-  const { data: myParts, error: partErr } = await supabase
+  // 1️⃣ Find shared conversation
+  const { data: shared, error } = await supabase
     .from("participants")
     .select("conversation_id")
     .eq("user_id", user.id);
 
-  if (partErr) {
-    console.error("Participant fetch error:", partErr);
+  if (error) {
+    console.error("Fetch participants error:", error);
     return;
   }
 
-  const myConversationIds = myParts.map(p => p.conversation_id);
+  const myConversationIds = shared.map(p => p.conversation_id);
 
   if (myConversationIds.length > 0) {
-    // 2️⃣ Check if other user is in any of those conversations
-    const { data: shared, error: sharedErr } = await supabase
+    const { data: existing } = await supabase
       .from("participants")
       .select("conversation_id")
+      .in("conversation_id", myConversationIds)
       .eq("user_id", otherUser.id)
-      .in("conversation_id", myConversationIds);
+      .limit(1);
 
-    if (sharedErr) {
-      console.error("Shared conversation error:", sharedErr);
-      return;
-    }
-
-    if (shared.length > 0) {
-      // ✅ Conversation already exists
-      const conversationId = shared[0].conversation_id;
+    if (existing && existing.length > 0) {
+      const conversationId = existing[0].conversation_id;
       setActiveConversation(conversationId);
       setActiveUser(otherUser);
       fetchMessages(conversationId);
@@ -210,36 +199,36 @@ async function openConversation(otherUser) {
     }
   }
 
-  // 3️⃣ No conversation exists → create new
-  const { data: newConvo, error: convoErr } = await supabase
+  // 2️⃣ Create new conversation
+  const { data: newConvo, error: convoError } = await supabase
     .from("conversations")
     .insert({})
     .select()
     .single();
 
-  if (convoErr) {
-    console.error("Conversation create error:", convoErr);
+  if (convoError) {
+    console.error("Conversation create error:", convoError);
     return;
   }
 
-  // 4️⃣ Insert participants
-  const { error: insertErr } = await supabase
+  // 3️⃣ Add participants
+  const { error: partError } = await supabase
     .from("participants")
     .insert([
       { conversation_id: newConvo.id, user_id: user.id },
       { conversation_id: newConvo.id, user_id: otherUser.id },
     ]);
 
-  if (insertErr) {
-    console.error("Insert participants error:", insertErr);
+  if (partError) {
+    console.error("Insert participants error:", partError);
     return;
   }
 
-  // 5️⃣ Activate conversation
   setActiveConversation(newConvo.id);
   setActiveUser(otherUser);
   fetchMessages(newConvo.id);
 }
+
 
 
 //meassage
@@ -375,8 +364,6 @@ if (isBanned) {
 
 
 async function fetchConversations() {
-  if (!user?.id) return; // ⛔ VERY IMPORTANT
-
   const { data, error } = await supabase
     .from("participants")
     .select(`
@@ -407,8 +394,18 @@ async function fetchConversations() {
     return;
   }
 
-  setConversations(data || []);
+  // ✅ Deduplicate by conversation_id
+  const uniqueMap = new Map();
+  data.forEach(item => {
+    if (!uniqueMap.has(item.conversation_id)) {
+      uniqueMap.set(item.conversation_id, item);
+    }
+  });
+
+  setConversations([...uniqueMap.values()]);
 }
+
+
 
 
 
@@ -458,8 +455,9 @@ async function fetchConversations() {
     const convo = item.conversations;
 
     const otherUser = convo.participants
-      .map(p => p.profiles)
-      .find(p => p.id !== user.id);
+  ?.map(p => p.profiles)
+  ?.find(p => p && p.id !== user.id) || null;
+
 
     const lastMessage =
       convo.messages?.sort(
@@ -475,10 +473,13 @@ async function fetchConversations() {
         key={convo.id}
         className="conversation-item"
         onClick={() => {
-          setActiveConversation(convo.id);
-          setActiveUser(otherUser);
-          fetchMessages(convo.id);
-        }}
+  if (!otherUser) return;
+
+  setActiveConversation(convo.id);
+  setActiveUser(otherUser);
+  fetchMessages(convo.id);
+}}
+
       >
         <img
           src={otherUser?.avatar_url || "/avatar.png"}
@@ -487,8 +488,11 @@ async function fetchConversations() {
         <div>
           <div className="name">{otherUser?.username}</div>
           <div className="preview">
-  {lastMessage?.content || "No messages yet"}
+  {lastMessage
+    ? lastMessage.content
+    : "No messages yet"}
 </div>
+
 
 {unreadCount > 0 && (
   <span className="unread-badge">{unreadCount}</span>
@@ -509,10 +513,13 @@ async function fetchConversations() {
         <div className="chat-header">
   {activeUser ? (
     <div className="chat-header-user">
-      <img
-        src={activeUser.avatar_url || "/avatar.png"}
-        alt="avatar"
-      />
+      {activeUser && (
+  <img
+    src={activeUser.avatar_url || "/avatar.png"}
+    alt="avatar"
+  />
+)}
+
       <div>
         <div className="username">{activeUser.username}</div>
         <div className="status">
