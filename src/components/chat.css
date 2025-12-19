@@ -256,18 +256,26 @@
 .unread-badge {
   background: red;
   color: white;
-  border-radius: 12px;
-  padding: 2px 6px;
   font-size: 12px;
-  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-left: 6px;
+}
+
+
+.avatar-wrapper {
+  position: relative;
 }
 
 .online-dot {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
   width: 8px;
   height: 8px;
-  background: #00ff6a;
+  background: #00ff00;
   border-radius: 50%;
-  display: inline-block;
-  margin-right: 6px;
+  border: 2px solid white;
 }
+
 

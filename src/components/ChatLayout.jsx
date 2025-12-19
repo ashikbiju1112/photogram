@@ -403,6 +403,14 @@ async function fetchConversations() {
   });
 
   setConversations([...uniqueMap.values()]);
+  const sorted = [...uniqueMap.values()].sort((a, b) => {
+  const aLast = a.conversations.messages?.[0]?.created_at || 0;
+  const bLast = b.conversations.messages?.[0]?.created_at || 0;
+  return new Date(bLast) - new Date(aLast);
+});
+
+setConversations(sorted);
+
 }
 
 
@@ -436,6 +444,35 @@ async function fetchConversations() {
 
   setText("");
 }
+async function deleteConversation(conversationId) {
+  await supabase
+    .from("participants")
+    .delete()
+    .eq("conversation_id", conversationId)
+    .eq("user_id", user.id);
+
+  setConversations(prev =>
+    prev.filter(c => c.conversation_id !== conversationId)
+  );
+
+  setActiveConversation(null);
+  setActiveUser(null);
+}
+
+async function createGroup(name, memberIds) {
+  const { data: convo } = await supabase
+    .from("conversations")
+    .insert({ is_group: true, name })
+    .select()
+    .single();
+
+  const rows = memberIds.map(id => ({
+    conversation_id: convo.id,
+    user_id: id,
+  }));
+
+  await supabase.from("participants").insert(rows);
+}
 
 
 
@@ -466,6 +503,10 @@ async function fetchConversations() {
       const unreadCount = convo.messages?.filter(
   m => !m.read && m.receiver_id === user.id
 ).length;
+const displayName = convo.is_group
+  ? convo.name
+  : otherUser.username;
+
 
 
     return (
@@ -481,22 +522,31 @@ async function fetchConversations() {
 }}
 
       >
-        <img
-          src={otherUser?.avatar_url || "/avatar.png"}
-          width={36}
-        />
+        <div className="avatar-wrapper">
+  <img src={otherUser.avatar_url || "/avatar.png"} width={36} />
+  {onlineUsers[otherUser.id] && <span className="online-dot" />}
+</div>
+<button
+  onClick={(e) => {
+    e.stopPropagation();
+    deleteConversation(convo.id);
+  }}
+>
+  🗑
+</button>
+
         <div>
           <div className="name">{otherUser?.username}</div>
           <div className="preview">
-  {lastMessage
-    ? lastMessage.content
-    : "No messages yet"}
+  {lastMessage ? lastMessage.content : "No messages yet"}
 </div>
+
 
 
 {unreadCount > 0 && (
   <span className="unread-badge">{unreadCount}</span>
 )}
+
 
         </div>
       </button>
