@@ -365,29 +365,30 @@ if (isBanned) {
 
 async function fetchConversations() {
   const { data, error } = await supabase
-    .from("participants")
-    .select(`
-      conversation_id,
-      conversations (
+  .from("participants")
+  .select(`
+    conversation_id,
+    conversations (
+      id,
+      messages (
         id,
-        messages (
+        content,
+        created_at,
+        read,
+        receiver_id
+      ),
+      participants (
+        user_id,
+        profiles!inner (
           id,
-          content,
-          created_at,
-          read,
-          receiver_id
-        ),
-        participants (
-          user_id,
-          profiles (
-            id,
-            username,
-            avatar_url
-          )
+          username,
+          avatar_url
         )
       )
-    `)
-    .eq("user_id", user.id);
+    )
+  `)
+  .eq("user_id", user.id);
+
 
   if (error) {
     console.error("fetchConversations error:", error);
@@ -492,75 +493,53 @@ async function createGroup(name, memberIds) {
     const convo = item.conversations;
 
     const otherUser = convo.participants
-  ?.map(p => p.profiles)
-  ?.find(p => p?.id && p.id !== user.id);
+      ?.map(p => p.profiles)
+      ?.find(p => p?.id && p.id !== user.id);
 
+    const lastMessage = convo.messages
+      ?.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
 
+    const unreadCount = convo.messages?.filter(
+      m => !m.read && m.receiver_id === user.id
+    ).length;
 
-    const lastMessage =
-      convo.messages?.sort(
-        (a, b) => new Date(b.created_at) - new Date(a.created_at)
-      )[0];
-      const unreadCount = convo.messages?.filter(
-  m => !m.read && m.receiver_id === user.id
-).length;
-const displayName = convo.is_group
-  ? convo.name
-  : otherUser?.username || "Deleted User";
-
-
-
+    const isDeleted = !otherUser;
 
     return (
-     <button
-  key={convo.id}
-  className="conversation-item"
-  disabled={!otherUser}
-  onClick={() => {
-    if (!otherUser) return;
-
-    setActiveConversation(convo.id);
-    setActiveUser(otherUser);
-    fetchMessages(convo.id);
-  }}
->
-
+      <button
+        key={convo.id}
+        className="conversation-item"
+        disabled={isDeleted}
+        onClick={() => {
+          if (isDeleted) return;
+          setActiveConversation(convo.id);
+          setActiveUser(otherUser);
+          fetchMessages(convo.id);
+        }}
+      >
         <div className="avatar-wrapper">
-  <img
-    src={otherUser?.avatar_url || "/avatar.png"}
-    width={36}
-  />
-  {otherUser?.id && onlineUsers[otherUser.id] && (
-    <span className="online-dot" />
-  )}
-</div>
+          <img
+            src={otherUser?.avatar_url || "/avatar.png"}
+            width={36}
+          />
+          {otherUser?.id && onlineUsers[otherUser.id] && (
+            <span className="online-dot" />
+          )}
+        </div>
 
-<button
-  onClick={(e) => {
-    e.stopPropagation();
-    deleteConversation(convo.id);
-  }}
->
-  🗑
-</button>
-
-        <div>
+        <div className="conversation-info">
           <div className="name">
-  {otherUser?.username || "Deleted User"}
-</div>
+            {otherUser?.username || "Deleted User"}
+          </div>
 
           <div className="preview">
-  {lastMessage ? lastMessage.content : "No messages yet"}
-</div>
-
-
-
-{unreadCount > 0 && (
-  <span className="unread-badge">{unreadCount}</span>
-)}
-
-
+            {lastMessage?.content || "No messages yet"}
+          </div>
         </div>
+
+        {unreadCount > 0 && (
+          <span className="unread-badge">{unreadCount}</span>
+        )}
       </button>
     );
   })}
@@ -573,32 +552,28 @@ const displayName = convo.is_group
 
       <main className="chat-window">
         <div className="chat-header">
-  {activeUser ? (
+  {activeConversation && activeUser ? (
     <div className="chat-header-user">
-      {activeUser && (
-  <img
-    src={activeUser.avatar_url || "/avatar.png"}
-    alt="avatar"
-  />
-)}
+      <img
+        src={activeUser.avatar_url || "/avatar.png"}
+        alt="avatar"
+      />
 
       <div>
         <div className="username">
-  {activeUser?.username || "Deleted User"}
-</div>
-
+          {activeUser.username}
+        </div>
 
         <div className="status">
-  {activeUser?.id
-    ? onlineUsers[activeUser.id]
-      ? "Online"
-      : "Offline"
-    : "User no longer available"}
-</div>
-
-
-
-
+          {onlineUsers[activeUser.id] ? "Online" : "Offline"}
+        </div>
+      </div>
+    </div>
+  ) : activeConversation ? (
+    <div className="chat-header-user">
+      <div>
+        <div className="username">Deleted User</div>
+        <div className="status">User no longer available</div>
       </div>
     </div>
   ) : (
@@ -607,6 +582,7 @@ const displayName = convo.is_group
     </div>
   )}
 </div>
+
 
 
 
@@ -627,15 +603,22 @@ const displayName = convo.is_group
   )
 ) : (
   <div className="messages">
-    {messages.map((msg) => {
+  {messages.length === 0 ? (
+    <div className="empty-chat">
+      No messages yet
+    </div>
+  ) : (
+    messages.map((msg) => {
       const isMe = msg.sender_id === user.id;
       return (
-        <div key={msg.id} className={isMe ? "msg right" : "msg left"}>
+        <div key={msg.id} className={`msg ${isMe ? "right" : "left"}`}>
           {msg.content}
         </div>
       );
-    })}
-  </div>
+    })
+  )}
+</div>
+
 )}
 
 
@@ -649,50 +632,39 @@ const displayName = convo.is_group
 
 
         <div className="chat-input">
-  <button
-    className={recording ? "mic recording" : "mic"}
-    onMouseDown={startRecording}
-    onMouseUp={stopRecording}
-  >
-    🎙
-  </button>
-
   <input
-  value={text}
-  disabled={!activeUser}
-  placeholder={
-    activeUser
-      ? "Message..."
-      : "You cannot message this user"
-  }
-  onChange={(e) => {
-    setText(e.target.value);
+    value={text}
+    disabled={!activeUser}
+    placeholder={
+      activeUser
+        ? "Message..."
+        : "You cannot message this user"
+    }
+    onChange={(e) => {
+      setText(e.target.value);
 
-    // 🛡️ PROTECTION FIX
-    if (!activeConversation || !user?.id) return;
+      if (!activeConversation || !activeUser) return;
 
-    supabase.channel(`typing-${activeConversation}`).send({
-      type: "broadcast",
-      event: "typing",
-      payload: {
-        userId: user.id,
-        username: user.email.split("@")[0],
-      },
-    });
-  }}
-/>
-
-
+      supabase.channel(`typing-${activeConversation}`).send({
+        type: "broadcast",
+        event: "typing",
+        payload: {
+          userId: user.id,
+          username: user.username,
+        },
+      });
+    }}
+  />
 
   <button
-  className="send"
-  disabled={!activeUser}
-  onClick={sendMessage}
->
-  ➤
-</button>
-
+    className="send"
+    disabled={!activeUser || !text.trim()}
+    onClick={sendMessage}
+  >
+    ➤
+  </button>
 </div>
+
 
 
       </main>
