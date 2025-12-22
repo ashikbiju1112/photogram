@@ -480,26 +480,41 @@ async function fetchConversations() {
   async function sendMessage() {
   if (!text.trim() || !activeConversation || !activeUser) return;
 
-  const { error } = await supabase.from("messages").insert({
-    conversation_id: activeConversation,
-    sender_id: user.id,
-    receiver_id: activeUser.id, // ✅ FIX
-    content: text,
-  });
-await supabase.from("participants").upsert([
-  { conversation_id: activeConversation, user_id: user.id },
-  { conversation_id: activeConversation, user_id: activeUser.id },
-]);
+  // 🔥 ENSURE participants exist FIRST
+  const { error: participantError } = await supabase
+    .from("participants")
+    .upsert(
+      [
+        { conversation_id: activeConversation, user_id: user.id },
+        { conversation_id: activeConversation, user_id: activeUser.id },
+      ],
+      { onConflict: "conversation_id,user_id" }
+    );
 
-  if (error) {
-    console.error("Send message error:", error);
+  if (participantError) {
+    console.error("Participant upsert error:", participantError);
     return;
   }
 
+  // 🔥 THEN insert message
+  const { error: messageError } = await supabase
+    .from("messages")
+    .insert({
+      conversation_id: activeConversation,
+      sender_id: user.id,
+      receiver_id: activeUser.id,
+      content: text,
+    });
+
+  if (messageError) {
+    console.error("Send message error:", messageError);
+    return;
+  }
+
+  // 🔥 UI cleanup only
   setText("");
-  fetchMessages(activeConversation); // optional but safe
-  fetchConversations();              // refresh sidebar
 }
+
 
 
 
