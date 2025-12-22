@@ -147,6 +147,9 @@ useEffect(() => {
 }, [loading, user?.id]);
 
 
+useEffect(() => {
+  setMessages([]);
+}, [activeConversation]);
 
 
 
@@ -183,7 +186,7 @@ async function openConversation(otherUser) {
       const conversationId = existing[0].conversation_id;
       setActiveConversation(conversationId);
       setActiveUser(otherUser);
-      fetchMessages(conversationId);
+      //fetchMessages(conversationId);
       return;
     }
   }
@@ -215,7 +218,7 @@ async function openConversation(otherUser) {
 
   setActiveConversation(newConvo.id);
   setActiveUser(otherUser);
-  fetchMessages(newConvo.id);
+  //fetchMessages(newConvo.id);
 }
 
 
@@ -324,13 +327,12 @@ useEffect(() => {
         filter: `conversation_id=eq.${activeConversation}`,
       },
       (payload) => {
-        setMessages((prev) =>
-  prev.some((m) => m.id === payload.new.id)
-    ? prev
-    : [...prev, payload.new]
-);
+  setMessages(prev => {
+    if (prev.some(m => m.id === payload.new.id)) return prev;
+    return [...prev, payload.new];
+  });
+}
 
-      }
     )
     .subscribe();
 const typingChannel = supabase
@@ -532,8 +534,7 @@ async function createGroup(name, memberIds) {
       ?.map(p => p.profiles)
       ?.find(p => p?.id && p.id !== user.id);
 
-    const lastMessage = convo.messages
-      ?.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+    const lastMessage = convo.messages?.[0];
 
     const unreadCount = convo.messages?.filter(
       m => !m.read && m.receiver_id === user.id
