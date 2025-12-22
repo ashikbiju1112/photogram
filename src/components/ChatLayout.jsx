@@ -147,10 +147,6 @@ useEffect(() => {
 }, [loading, user?.id]);
 
 
-useEffect(() => {
-  setMessages([]);
-}, [activeConversation]);
-
 
 
 
@@ -451,14 +447,31 @@ async function fetchConversations() {
   async function sendMessage() {
   if (!text.trim() || !activeConversation) return;
 
-  await supabase.from("messages").insert({
+  // 1️⃣ Insert message
+  const { error } = await supabase.from("messages").insert({
     conversation_id: activeConversation,
     sender_id: user.id,
     content: text,
   });
 
+  if (error) {
+    console.error("Send message error:", error);
+    return;
+  }
+
+  // 2️⃣ UPDATE conversation timestamp 🔥
+  await supabase
+    .from("conversations")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", activeConversation);
+
+  // 3️⃣ Refresh sidebar immediately
+  fetchConversations();
+
   setText("");
 }
+
+
 async function deleteConversation(conversationId) {
   await supabase
     .from("participants")
