@@ -409,9 +409,11 @@ async function fetchConversations() {
 
   const cleaned = data
     // ✅ only my conversations
-    .filter(convo =>
-      convo.participants?.some(p => p.user_id === user.id)
-    )
+    .filter(convo => {
+  const participantIds = convo.participants?.map(p => p.user_id) || [];
+  return participantIds.includes(user.id);
+})
+
     .map(convo => {
       const otherUser = convo.participants
         .map(p => p.profiles)
@@ -478,6 +480,10 @@ async function fetchConversations() {
     receiver_id: activeUser.id, // ✅ FIX
     content: text,
   });
+await supabase.from("participants").upsert([
+  { conversation_id: activeConversation, user_id: user.id },
+  { conversation_id: activeConversation, user_id: activeUser.id },
+]);
 
   if (error) {
     console.error("Send message error:", error);
