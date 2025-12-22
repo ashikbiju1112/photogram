@@ -186,7 +186,13 @@ async function openConversation(otherUser) {
     .select("conversation_id")
     .eq("user_id", user.id);
 
-  const myConversationIds = shared.map(p => p.conversation_id);
+  const myConversationIds = shared
+  .map(p => p.conversation_id)
+  .filter(Boolean); // 🚨 CRITICAL
+if (myConversationIds.length === 0) {
+  // no previous conversations at all
+} 
+
 
   if (myConversationIds.length > 0) {
     const { data: existing } = await supabase
