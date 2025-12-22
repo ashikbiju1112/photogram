@@ -383,7 +383,8 @@ async function fetchConversations() {
   const cleaned = data
     // ✅ only conversations where I am a participant
     .filter(convo =>
-      convo.participants.some(p => p.user_id === user.id)
+  Array.isArray(convo.participants) &&
+  convo.participants.some(p => p.user_id === user.id)
     )
     .map(convo => {
       const otherUser = convo.participants
@@ -411,8 +412,15 @@ async function fetchConversations() {
     const bTime = b.conversations.messages[0]?.created_at || 0;
     return new Date(bTime) - new Date(aTime);
   });
+  const map = new Map();
 
-  setConversations(cleaned);
+cleaned.forEach(c => {
+  map.set(c.conversation_id, c);
+});
+
+// ✅ FINAL SET
+setConversations([...map.values()]);
+
 }
 
 
@@ -439,12 +447,12 @@ async function fetchConversations() {
 
 
   async function sendMessage() {
-  if (!text.trim() || !activeConversation) return;
+  if (!text.trim() || !activeConversation || !activeUser) return;
 
-  // 1️⃣ Insert message
   const { error } = await supabase.from("messages").insert({
     conversation_id: activeConversation,
     sender_id: user.id,
+    receiver_id: activeUser.id, // ✅ FIX
     content: text,
   });
 
@@ -453,17 +461,11 @@ async function fetchConversations() {
     return;
   }
 
-  // 2️⃣ UPDATE conversation timestamp 🔥
-  /*await supabase
-    .from("conversations")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", activeConversation);*/
-
-  // 3️⃣ Refresh sidebar immediately
-  fetchConversations();
-
   setText("");
+  fetchMessages(activeConversation); // optional but safe
+  fetchConversations();              // refresh sidebar
 }
+
 
 
 async function deleteConversation(conversationId) {
