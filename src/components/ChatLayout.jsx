@@ -372,76 +372,69 @@ if (isBanned) {
 
 
 async function fetchConversations() {
-  const { data: rows, error } = await supabase
-    .from("participants")
+  const { data, error } = await supabase
+    .from("conversations")
     .select(`
-      conversation_id,
-      conversations (
+      id,
+      is_group,
+      name,
+      messages (
         id,
-        is_group,
-        name,
-        messages (
+        content,
+        created_at,
+        read,
+        receiver_id
+      ),
+      participants (
+        user_id,
+        profiles (
           id,
-          content,
-          created_at,
-          read,
-          receiver_id
-        ),
-        participants (
-          user_id,
-          profiles (
-            id,
-            username,
-            avatar_url
-          )
+          username,
+          avatar_url
         )
       )
-    `)
-    .eq("user_id", user.id);
+    `);
 
   if (error) {
     console.error("fetchConversations error:", error);
     return;
   }
 
-  // ✅ STEP 1: DEDUPE BY CONVERSATION ID
-  const map = new Map();
-
-  rows.forEach(row => {
-    if (!row.conversations) return;
-    map.set(row.conversation_id, row.conversations);
-  });
-
-  // ✅ STEP 2: NORMALIZE DATA
-  const conversations = [...map.entries()].map(
-    ([conversation_id, convo]) => {
+  const cleaned = data
+    // ✅ only conversations where I am a participant
+    .filter(convo =>
+      convo.participants.some(p => p.user_id === user.id)
+    )
+    .map(convo => {
       const otherUser = convo.participants
-        ?.map(p => p.profiles)
-        ?.find(p => p && p.id !== user.id);
+        .map(p => p.profiles)
+        .find(p => p && p.id !== user.id);
 
       const lastMessage = convo.messages
         ?.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
 
       return {
-        conversation_id,
+        conversation_id: convo.id,
         conversations: {
           ...convo,
           messages: lastMessage ? [lastMessage] : [],
         },
         otherUser,
       };
-    }
-  );
+    })
+    // ❗️drop broken conversations
+    .filter(c => c.otherUser);
 
-  // ✅ STEP 3: SORT BY LAST MESSAGE
-  conversations.sort((a, b) => {
+  // ✅ SORT BY LAST MESSAGE TIME
+  cleaned.sort((a, b) => {
     const aTime = a.conversations.messages[0]?.created_at || 0;
     const bTime = b.conversations.messages[0]?.created_at || 0;
     return new Date(bTime) - new Date(aTime);
   });
 
-  setConversations(conversations);
+  setConversations(cleaned);
 }
+
 
 
 
@@ -481,10 +474,10 @@ async function fetchConversations() {
   }
 
   // 2️⃣ UPDATE conversation timestamp 🔥
-  await supabase
+  /*await supabase
     .from("conversations")
     .update({ updated_at: new Date().toISOString() })
-    .eq("id", activeConversation);
+    .eq("id", activeConversation);*/
 
   // 3️⃣ Refresh sidebar immediately
   fetchConversations();
