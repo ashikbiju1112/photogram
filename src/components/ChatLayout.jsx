@@ -394,12 +394,15 @@ async function fetchConversations() {
         is_group,
         name,
         messages (
-          id,
-          content,
-          created_at,
-          read,
-          receiver_id
-        ),
+  id,
+  content,
+  created_at,
+  read,
+  receiver_id
+)
+order by created_at desc
+limit 1,
+
         participants (
           user_id,
           profiles (
