@@ -382,7 +382,7 @@ if (isBanned) {
 
 
 async function fetchConversations() {
-  const { data, error } = await supabase
+  const { data: rows, error } = await supabase
     .from("participants")
     .select(`
       conversation_id,
@@ -414,8 +414,8 @@ async function fetchConversations() {
     return;
   }
 
-  // ✅ STEP 1: CLEAN + NORMALIZE
-  const cleaned = data
+  // ✅ STEP 1: CLEAN
+  const cleaned = rows
     .map(item => {
       const convo = item.conversations;
       if (!convo) return null;
@@ -431,19 +431,17 @@ async function fetchConversations() {
         hasValidUser: !!otherUser,
       };
     })
-    .filter(Boolean); // remove null garbage rows
+    .filter(Boolean);
 
-  // ✅ STEP 2: DEDUPLICATE BY conversation_id
+  // ✅ STEP 2: DEDUPE
   const uniqueMap = new Map();
   cleaned.forEach(item => {
-    if (!uniqueMap.has(item.conversation_id)) {
-      uniqueMap.set(item.conversation_id, item);
-    }
+    uniqueMap.set(item.conversation_id, item);
   });
 
   const unique = [...uniqueMap.values()];
 
-  // ✅ STEP 3: SORT BY LAST MESSAGE
+  // ✅ STEP 3: SORT
   unique.sort((a, b) => {
     const aLast =
       a.conversations.messages?.[0]?.created_at || 0;
@@ -452,11 +450,10 @@ async function fetchConversations() {
     return new Date(bLast) - new Date(aLast);
   });
 
-  // ✅ STEP 4: SET STATE (ONCE 🔥)
+  // ✅ STEP 4: SET STATE (ONCE)
   setConversations(unique);
-  console.log("Conversations:", unique);
-
 }
+
 
 
 
