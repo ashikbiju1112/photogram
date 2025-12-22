@@ -288,7 +288,7 @@ function stopRecording() {
 useEffect(() => {
   if (!user || !activeConversation) return;
 
-  // Mark DB as read
+  // Mark DB messages as read
   supabase
     .from("messages")
     .update({ read: true })
@@ -296,7 +296,7 @@ useEffect(() => {
     .eq("receiver_id", user.id)
     .eq("read", false);
 
-  // Update local conversation list instantly
+  // Update local unread state safely
   setConversations(prev =>
     prev.map(c => {
       if (c.conversation_id !== activeConversation) return c;
@@ -305,12 +305,15 @@ useEffect(() => {
         ...c,
         conversations: {
           ...c.conversations,
-         messages: [payload.new, ...(c.conversations.messages || [])],
-        }
+          messages: (c.conversations.messages || []).map(m =>
+            m.receiver_id === user.id ? { ...m, read: true } : m
+          ),
+        },
       };
     })
   );
 }, [activeConversation, user]);
+
 
 
 useEffect(() => {
