@@ -461,25 +461,6 @@ async function fetchConversations() {
 
 
 
-const cleaned = data
-  .map(item => {
-    const convo = item.conversations;
-
-    // Find other user (not me)
-    const otherUser = convo.participants
-      ?.map(p => p.profiles)
-      ?.find(p => p && p.id !== user.id);
-
-    return {
-      ...item,
-      otherUser,
-      hasValidUser: !!otherUser,
-    };
-  })
-  // 🚨 Remove pure garbage rows
-  .filter(item => item.conversations);
-
-setConversations(cleaned);
 
 
 
