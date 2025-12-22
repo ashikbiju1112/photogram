@@ -389,7 +389,8 @@ async function fetchConversations() {
         content,
         created_at,
         read,
-        receiver_id
+        receiver_id,
+        sender_id
       ),
       participants (
         user_id,
@@ -407,18 +408,19 @@ async function fetchConversations() {
   }
 
   const cleaned = data
-    // ✅ only conversations where I am a participant
+    // ✅ only my conversations
     .filter(convo =>
-  Array.isArray(convo.participants) &&
-  convo.participants.some(p => p.user_id === user.id)
+      convo.participants?.some(p => p.user_id === user.id)
     )
     .map(convo => {
       const otherUser = convo.participants
         .map(p => p.profiles)
         .find(p => p && p.id !== user.id);
 
+      // 🔥 FORCE last message
       const lastMessage = convo.messages
-        ?.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+        ?.slice()
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
 
       return {
         conversation_id: convo.id,
@@ -427,27 +429,21 @@ async function fetchConversations() {
           messages: lastMessage ? [lastMessage] : [],
         },
         otherUser,
+        lastMessageTime: lastMessage?.created_at || null,
       };
     })
-    // ❗️drop broken conversations
     .filter(c => c.otherUser);
 
-  // ✅ SORT BY LAST MESSAGE TIME
+  // 🔥 SORT conversations by last message
   cleaned.sort((a, b) => {
-    const aTime = a.conversations.messages[0]?.created_at || 0;
-    const bTime = b.conversations.messages[0]?.created_at || 0;
-    return new Date(bTime) - new Date(aTime);
+    if (!a.lastMessageTime) return 1;
+    if (!b.lastMessageTime) return -1;
+    return new Date(b.lastMessageTime) - new Date(a.lastMessageTime);
   });
-  const map = new Map();
 
-cleaned.forEach(c => {
-  map.set(c.conversation_id, c);
-});
-
-// ✅ FINAL SET
-setConversations([...map.values()]);
-
+  setConversations(cleaned);
 }
+
 
 
 
