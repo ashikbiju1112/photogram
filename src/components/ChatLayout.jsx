@@ -286,14 +286,32 @@ function stopRecording() {
   }
 }
 useEffect(() => {
-    if (!user || !messages.length) return;
+  if (!user || !activeConversation) return;
 
-    supabase
-      .from("messages")
-      .update({ read: true })
-      .eq("receiver_id", user.id)
-      .eq("read", false);
-  }, [messages, user]);
+  // Mark DB as read
+  supabase
+    .from("messages")
+    .update({ read: true })
+    .eq("conversation_id", activeConversation)
+    .eq("receiver_id", user.id)
+    .eq("read", false);
+
+  // Update local conversation list instantly
+  setConversations(prev =>
+    prev.map(c => {
+      if (c.conversation_id !== activeConversation) return c;
+
+      return {
+        ...c,
+        conversations: {
+          ...c.conversations,
+         messages: [payload.new, ...(c.conversations.messages || [])],
+        }
+      };
+    })
+  );
+}, [activeConversation, user]);
+
 
 useEffect(() => {
   const el = document.querySelector(".messages");
@@ -508,7 +526,9 @@ async function createGroup(name, memberIds) {
     return (
       <button
         key={convo.id}
-        className="conversation-item"
+        className={`conversation-item ${
+    activeConversation === convo.id ? "active" : ""
+  }`}
         disabled={isDeleted}
         onClick={() => {
           if (isDeleted) return;
@@ -612,8 +632,20 @@ async function createGroup(name, memberIds) {
       const isMe = msg.sender_id === user.id;
       return (
         <div key={msg.id} className={`msg ${isMe ? "right" : "left"}`}>
-          {msg.content}
-        </div>
+  {msg.content && <span>{msg.content}</span>}
+
+  {msg.audio_url && (
+    <audio controls src={msg.audio_url} style={{ width: "220px" }} />
+  )}
+
+  <span className="time">
+    {new Date(msg.created_at).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    })}
+  </span>
+</div>
+
       );
     })
   )}

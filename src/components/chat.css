@@ -1,3 +1,14 @@
+@media (max-width: 768px) {
+  .chat-window {
+    width: 100vw;
+  }
+
+  .chat-input input {
+    font-size: 16px;
+  }
+}
+
+
 .chat-app {
   display: flex;
   height: 100vh;
@@ -122,6 +133,7 @@
   position: relative;
   word-break: break-word;
   white-space: pre-wrap;
+  animation: fadeIn 0.15s ease-in;
 }
 
 .msg.left {
@@ -283,3 +295,16 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
