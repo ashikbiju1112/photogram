@@ -376,79 +376,55 @@ if (isBanned) {
 
 
 async function fetchConversations() {
-  const { data: rows, error } = await supabase
-    .from("participants")
+  const { data, error } = await supabase
+    .from("conversations")
     .select(`
-      conversation_id,
-      conversations (
+      id,
+      is_group,
+      name,
+      updated_at,
+      messages (
         id,
-        is_group,
-        name,
-        messages (
-  id,
-  content,
-  created_at,
-  read,
-  receiver_id
-)
-order by created_at desc
-limit 1,
-
-        participants (
-          user_id,
-          profiles (
-            id,
-            username,
-            avatar_url
-          )
+        content,
+        created_at,
+        read,
+        receiver_id
+      )
+      order by created_at desc
+      limit 1,
+      participants (
+        user_id,
+        profiles (
+          id,
+          username,
+          avatar_url
         )
       )
     `)
-    .eq("user_id", user.id);
+    .order("updated_at", { ascending: false });
 
   if (error) {
     console.error("fetchConversations error:", error);
     return;
   }
 
-  // ✅ STEP 1: CLEAN
-  const cleaned = rows
-    .map(item => {
-      const convo = item.conversations;
-      if (!convo) return null;
-
+  const cleaned = data
+    .filter(convo =>
+      convo.participants.some(p => p.user_id === user.id)
+    )
+    .map(convo => {
       const otherUser = convo.participants
-        ?.map(p => p.profiles)
-        ?.find(p => p && p.id !== user.id);
+        .map(p => p.profiles)
+        .find(p => p && p.id !== user.id);
 
       return {
-        conversation_id: item.conversation_id,
+        conversation_id: convo.id,
         conversations: convo,
         otherUser,
-        hasValidUser: !!otherUser,
       };
-    })
-    .filter(Boolean);
+    });
 
-  // ✅ STEP 2: DEDUPE
-  const uniqueMap = new Map();
-  cleaned.forEach(item => {
-    uniqueMap.set(item.conversation_id, item);
-  });
-
-  const unique = [...uniqueMap.values()];
-
-  // ✅ STEP 3: SORT
-  unique.sort((a, b) => {
-    const aLast =
-      a.conversations.messages?.[0]?.created_at || 0;
-    const bLast =
-      b.conversations.messages?.[0]?.created_at || 0;
-    return new Date(bLast) - new Date(aLast);
-  });
-
-  // ✅ STEP 4: SET STATE (ONCE)
-  setConversations(unique);
+  setConversations(cleaned);
 }
 
 
@@ -553,7 +529,7 @@ async function createGroup(name, memberIds) {
           if (isDeleted) return;
           setActiveConversation(convo.id);
           setActiveUser(otherUser);
-          fetchMessages(convo.id);
+          //fetchMessages(convo.id);
         }}
       >
         <div className="avatar-wrapper">
