@@ -155,18 +155,10 @@ useEffect(() => {
 
 
 async function openConversation(otherUser) {
-  console.log("OPEN CONVERSATION WITH:", otherUser);
-
-  // 1️⃣ Find shared conversation
-  const { data: shared, error } = await supabase
+  const { data: shared } = await supabase
     .from("participants")
     .select("conversation_id")
     .eq("user_id", user.id);
-
-  if (error) {
-    console.error("Fetch participants error:", error);
-    return;
-  }
 
   const myConversationIds = shared.map(p => p.conversation_id);
 
@@ -182,40 +174,28 @@ async function openConversation(otherUser) {
       const conversationId = existing[0].conversation_id;
       setActiveConversation(conversationId);
       setActiveUser(otherUser);
-      //fetchMessages(conversationId);
+      fetchMessages(conversationId); // ✅ REQUIRED
       return;
     }
   }
 
-  // 2️⃣ Create new conversation
-  const { data: newConvo, error: convoError } = await supabase
+  // Create new conversation
+  const { data: newConvo } = await supabase
     .from("conversations")
     .insert({})
     .select()
     .single();
 
-  if (convoError) {
-    console.error("Conversation create error:", convoError);
-    return;
-  }
-
-  // 3️⃣ Add participants
-  const { error: partError } = await supabase
-    .from("participants")
-    .insert([
-      { conversation_id: newConvo.id, user_id: user.id },
-      { conversation_id: newConvo.id, user_id: otherUser.id },
-    ]);
-
-  if (partError) {
-    console.error("Insert participants error:", partError);
-    return;
-  }
+  await supabase.from("participants").insert([
+    { conversation_id: newConvo.id, user_id: user.id },
+    { conversation_id: newConvo.id, user_id: otherUser.id },
+  ]);
 
   setActiveConversation(newConvo.id);
   setActiveUser(otherUser);
-  //fetchMessages(newConvo.id);
+  fetchMessages(newConvo.id); // ✅ REQUIRED
 }
+
 
 
 
