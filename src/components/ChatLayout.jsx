@@ -404,11 +404,17 @@ async function fetchConversations() {
     return;
   }
 
-  const cleaned = (rows || [])
-    .map(row => {
-      const convo = row.conversations;
-      if (!convo) return null;
+  // ✅ STEP 1: DEDUPE BY CONVERSATION ID
+  const map = new Map();
 
+  rows.forEach(row => {
+    if (!row.conversations) return;
+    map.set(row.conversation_id, row.conversations);
+  });
+
+  // ✅ STEP 2: NORMALIZE DATA
+  const conversations = [...map.entries()].map(
+    ([conversation_id, convo]) => {
       const otherUser = convo.participants
         ?.map(p => p.profiles)
         ?.find(p => p && p.id !== user.id);
@@ -417,24 +423,24 @@ async function fetchConversations() {
         ?.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
 
       return {
-        conversation_id: row.conversation_id,
+        conversation_id,
         conversations: {
           ...convo,
           messages: lastMessage ? [lastMessage] : [],
         },
         otherUser,
       };
-    })
-    .filter(Boolean);
+    }
+  );
 
-  // ✅ SORT BY LAST MESSAGE TIME (REAL CHAT BEHAVIOR)
-  cleaned.sort((a, b) => {
+  // ✅ STEP 3: SORT BY LAST MESSAGE
+  conversations.sort((a, b) => {
     const aTime = a.conversations.messages[0]?.created_at || 0;
     const bTime = b.conversations.messages[0]?.created_at || 0;
     return new Date(bTime) - new Date(aTime);
   });
 
-  setConversations(cleaned);
+  setConversations(conversations);
 }
 
 
