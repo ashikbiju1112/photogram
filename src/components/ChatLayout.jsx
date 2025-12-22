@@ -15,7 +15,7 @@ export default function ChatLayout() {
   const [activeConversation, setActiveConversation] = useState(null);
   const [activeUser, setActiveUser] = useState(null);
   const [conversations, setConversations] = useState([]);
-  const [typing, setTyping] = useState(false);
+  //const [typing, setTyping] = useState(false);
 //const typingChannel = supabase.channel("typing");
 const [onlineUsers, setOnlineUsers] = useState({});
 const [typingUser, setTypingUser] = useState(null);
@@ -33,7 +33,7 @@ const [audioChunks, setAudioChunks] = useState([]);
 
 
 
-  const receiverId = user?.id; // temporary
+  //const receiverId = user?.id; // temporary
   //const isAdmin = user?.email === "gamingwithtoxic0@gmail.com";
   const isAdmin = role === "admin";
 
@@ -200,7 +200,7 @@ async function openConversation(otherUser) {
       const conversationId = existing[0].conversation_id;
       setActiveConversation(conversationId);
       setActiveUser(otherUser);
-      fetchMessages(conversationId); // ✅ REQUIRED
+      //fetchMessages(conversationId); // ✅ REQUIRED
       return;
     }
   }
@@ -219,7 +219,7 @@ async function openConversation(otherUser) {
 
   setActiveConversation(newConvo.id);
   setActiveUser(otherUser);
-  fetchMessages(newConvo.id); // ✅ REQUIRED
+  //fetchMessages(newConvo.id); // ✅ REQUIRED
 }
 
 
