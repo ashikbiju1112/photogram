@@ -477,7 +477,7 @@ async function fetchConversations() {
 
 
 
-  async function sendMessage() {
+ /* async function sendMessage() {
   if (!text.trim() || !activeConversation || !activeUser) return;
 
   // 🔥 ENSURE participants exist FIRST
@@ -512,6 +512,38 @@ async function fetchConversations() {
   }
 
   // 🔥 UI cleanup only
+  setText("");
+}
+*/
+async function sendMessage() {
+  if (!text.trim() || !activeConversation || !activeUser) return;
+
+  // ✅ ONLY insert yourself
+  const { error: participantError } = await supabase
+    .from("participants")
+    .upsert(
+      [{ conversation_id: activeConversation, user_id: user.id }],
+      { onConflict: "conversation_id,user_id" }
+    );
+
+  if (participantError) {
+    console.error("Participant error:", participantError);
+    return;
+  }
+
+  // ✅ Insert message
+  const { error } = await supabase.from("messages").insert({
+    conversation_id: activeConversation,
+    sender_id: user.id,
+    receiver_id: activeUser.id,
+    content: text,
+  });
+
+  if (error) {
+    console.error("Send message error:", error);
+    return;
+  }
+
   setText("");
 }
 
