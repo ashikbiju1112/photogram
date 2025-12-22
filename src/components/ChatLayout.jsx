@@ -397,7 +397,8 @@ async function fetchConversations() {
         )
       )
     `)
-    .order("updated_at", { ascending: false });
+    .order("created_at", { ascending: false })
+
 
   if (error) {
     console.error("fetchConversations error:", error);
