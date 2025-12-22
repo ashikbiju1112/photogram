@@ -378,7 +378,7 @@ async function fetchConversations() {
       id,
       is_group,
       name,
-      updated_at,
+      created_at,
       messages (
         id,
         content,
