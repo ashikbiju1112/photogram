@@ -372,57 +372,71 @@ if (isBanned) {
 
 
 async function fetchConversations() {
-  const { data, error } = await supabase
-    .from("conversations")
+  const { data: rows, error } = await supabase
+    .from("participants")
     .select(`
-      id,
-      is_group,
-      name,
-      created_at,
-      messages (
+      conversation_id,
+      conversations (
         id,
-        content,
-        created_at,
-        read,
-        receiver_id
-      )
-      order by created_at desc
-      limit 1,
-      participants (
-        user_id,
-        profiles (
+        is_group,
+        name,
+        messages (
           id,
-          username,
-          avatar_url
+          content,
+          created_at,
+          read,
+          receiver_id
+        ),
+        participants (
+          user_id,
+          profiles (
+            id,
+            username,
+            avatar_url
+          )
         )
       )
     `)
-    .order("created_at", { ascending: false })
-
+    .eq("user_id", user.id);
 
   if (error) {
     console.error("fetchConversations error:", error);
     return;
   }
 
-  const cleaned = data
-    .filter(convo =>
-      convo.participants.some(p => p.user_id === user.id)
-    )
-    .map(convo => {
+  const cleaned = (rows || [])
+    .map(row => {
+      const convo = row.conversations;
+      if (!convo) return null;
+
       const otherUser = convo.participants
-        .map(p => p.profiles)
-        .find(p => p && p.id !== user.id);
+        ?.map(p => p.profiles)
+        ?.find(p => p && p.id !== user.id);
+
+      const lastMessage = convo.messages
+        ?.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
 
       return {
-        conversation_id: convo.id,
-        conversations: convo,
+        conversation_id: row.conversation_id,
+        conversations: {
+          ...convo,
+          messages: lastMessage ? [lastMessage] : [],
+        },
         otherUser,
       };
-    });
+    })
+    .filter(Boolean);
+
+  // ✅ SORT BY LAST MESSAGE TIME (REAL CHAT BEHAVIOR)
+  cleaned.sort((a, b) => {
+    const aTime = a.conversations.messages[0]?.created_at || 0;
+    const bTime = b.conversations.messages[0]?.created_at || 0;
+    return new Date(bTime) - new Date(aTime);
+  });
 
   setConversations(cleaned);
 }
+
 
 
 
