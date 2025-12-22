@@ -550,7 +550,8 @@ async function createGroup(name, memberIds) {
       m => !m.read && m.receiver_id === user.id
     ).length;
 
-    const isDeleted = !otherUser;
+    const isDeleted = !otherUser?.id;
+
 
     return (
       <button
