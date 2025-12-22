@@ -38,6 +38,12 @@ const [audioChunks, setAudioChunks] = useState([]);
   const isAdmin = role === "admin";
 
 
+useEffect(() => {
+  if (!activeConversation) return;
+
+  fetchMessages(activeConversation);
+}, [activeConversation]);
+
 
 /*useEffect(() => {
   if (!user) return;
@@ -146,23 +152,6 @@ const [audioChunks, setAudioChunks] = useState([]);
 
 
 
-
-
-/*useEffect(() => {
-  if (!activeConversation) return;
-
-  const channel = supabase
-    .channel(`typing-${activeConversation}`)
-    .on("broadcast", { event: "typing" }, (payload) => {
-      if (payload.payload.userId !== user.id) {
-        setTyping(true);
-        setTimeout(() => setTyping(false), 1000);
-      }
-    })
-    .subscribe();
-
-  return () => supabase.removeChannel(channel);
-}, [activeConversation]);*/
 
 
 
