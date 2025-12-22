@@ -148,6 +148,32 @@ useEffect(() => {
 
 
 
+useEffect(() => {
+  if (!user?.id) return;
+
+  const sidebarChannel = supabase
+    .channel("sidebar-updates")
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        table: "messages",
+      },
+      (payload) => {
+        const msg = payload.new;
+
+        // Only refresh if message involves me
+        if (msg.sender_id === user.id || msg.receiver_id === user.id) {
+          fetchConversations(); // 🔥 THIS IS THE FIX
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(sidebarChannel);
+  };
+}, [user?.id]);
 
 
 
@@ -363,7 +389,8 @@ async function fetchConversations() {
         content,
         created_at,
         read,
-        receiver_id
+        receiver_id,
+        sender_id
       ),
       participants (
         user_id,
@@ -381,10 +408,9 @@ async function fetchConversations() {
   }
 
   const cleaned = data
-    // ✅ only conversations where I am a participant
+    // only my conversations
     .filter(convo =>
-  Array.isArray(convo.participants) &&
-  convo.participants.some(p => p.user_id === user.id)
+      convo.participants?.some(p => p.user_id === user.id)
     )
     .map(convo => {
       const otherUser = convo.participants
@@ -403,25 +429,18 @@ async function fetchConversations() {
         otherUser,
       };
     })
-    // ❗️drop broken conversations
-    .filter(c => c.otherUser);
+    .filter(c => c.otherUser); // drop deleted users
 
-  // ✅ SORT BY LAST MESSAGE TIME
+  // sort sidebar by last message
   cleaned.sort((a, b) => {
     const aTime = a.conversations.messages[0]?.created_at || 0;
     const bTime = b.conversations.messages[0]?.created_at || 0;
     return new Date(bTime) - new Date(aTime);
   });
-  const map = new Map();
 
-cleaned.forEach(c => {
-  map.set(c.conversation_id, c);
-});
-
-// ✅ FINAL SET
-setConversations([...map.values()]);
-
+  setConversations(cleaned);
 }
+
 
 
 
