@@ -383,58 +383,103 @@ if (isBanned) {
 
 async function fetchConversations() {
   const { data, error } = await supabase
-  .from("participants")
-  .select(`
-    conversation_id,
-    conversations (
-      id,
-      messages (
+    .from("participants")
+    .select(`
+      conversation_id,
+      conversations (
         id,
-        content,
-        created_at,
-        read,
-        receiver_id
-      ),
-      participants (
-        user_id,
-        profiles!inner (
+        is_group,
+        name,
+        messages (
           id,
-          username,
-          avatar_url
+          content,
+          created_at,
+          read,
+          receiver_id
+        ),
+        participants (
+          user_id,
+          profiles (
+            id,
+            username,
+            avatar_url
+          )
         )
       )
-    )
-  `)
-  .eq("user_id", user.id);
-
+    `)
+    .eq("user_id", user.id);
 
   if (error) {
     console.error("fetchConversations error:", error);
     return;
   }
 
-  // ✅ Deduplicate by conversation_id
+  // ✅ STEP 1: CLEAN + NORMALIZE
+  const cleaned = data
+    .map(item => {
+      const convo = item.conversations;
+      if (!convo) return null;
+
+      const otherUser = convo.participants
+        ?.map(p => p.profiles)
+        ?.find(p => p && p.id !== user.id);
+
+      return {
+        conversation_id: item.conversation_id,
+        conversations: convo,
+        otherUser,
+        hasValidUser: !!otherUser,
+      };
+    })
+    .filter(Boolean); // remove null garbage rows
+
+  // ✅ STEP 2: DEDUPLICATE BY conversation_id
   const uniqueMap = new Map();
-  data.forEach(item => {
+  cleaned.forEach(item => {
     if (!uniqueMap.has(item.conversation_id)) {
       uniqueMap.set(item.conversation_id, item);
     }
   });
 
-  setConversations([...uniqueMap.values()]);
-  const sorted = [...uniqueMap.values()].sort((a, b) => {
-  const aLast = a.conversations.messages?.[0]?.created_at || 0;
-  const bLast = b.conversations.messages?.[0]?.created_at || 0;
-  return new Date(bLast) - new Date(aLast);
-});
+  const unique = [...uniqueMap.values()];
 
-setConversations(sorted);
+  // ✅ STEP 3: SORT BY LAST MESSAGE
+  unique.sort((a, b) => {
+    const aLast =
+      a.conversations.messages?.[0]?.created_at || 0;
+    const bLast =
+      b.conversations.messages?.[0]?.created_at || 0;
+    return new Date(bLast) - new Date(aLast);
+  });
+
+  // ✅ STEP 4: SET STATE (ONCE 🔥)
+  setConversations(unique);
+  console.log("Conversations:", unique);
 
 }
 
 
 
 
+const cleaned = data
+  .map(item => {
+    const convo = item.conversations;
+
+    // Find other user (not me)
+    const otherUser = convo.participants
+      ?.map(p => p.profiles)
+      ?.find(p => p && p.id !== user.id);
+
+    return {
+      ...item,
+      otherUser,
+      hasValidUser: !!otherUser,
+    };
+  })
+  // 🚨 Remove pure garbage rows
+  .filter(item => item.conversations);
+
+setConversations(cleaned);
 
 
 
