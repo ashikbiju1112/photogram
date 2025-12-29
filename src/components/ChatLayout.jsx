@@ -22,6 +22,11 @@ const [typingUser, setTypingUser] = useState(null);
 //const { userr } = useAuth(); // ✅ REQUIRED
 const { user, loading, isBanned, bannedUntil, role } = useAuth();
 
+const messagesEndRef = useRef(null);
+
+useLayoutEffect(() => {
+  messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+}, [messages]);
 
 
 
@@ -37,13 +42,13 @@ const [audioChunks, setAudioChunks] = useState([]);
   //const isAdmin = user?.email === "gamingwithtoxic0@gmail.com";
   const isAdmin = role === "admin";
 
-
+/*
 useEffect(() => {
   if (!activeConversation) return;
 
   fetchMessages(activeConversation);
 }, [activeConversation]);
-
+*/
 
 /*useEffect(() => {
   if (!user) return;
@@ -325,39 +330,39 @@ useEffect(() => {
 useEffect(() => {
   if (!activeConversation) return;
 
-  const msgChannel = supabase
-    .channel(`messages-${activeConversation}`)
+  // 1️⃣ Initial fetch
+  supabase
+    .from("messages")
+    .select("*")
+    .eq("conversation_id", activeConversation)
+    .order("created_at")
+    .then(({ data }) => setMessages(data || []));
+
+  // 2️⃣ Realtime listener
+  const channel = supabase
+    .channel(`chat:${activeConversation}`)
     .on(
       "postgres_changes",
       {
         event: "INSERT",
+        schema: "public",
         table: "messages",
-        filter: `conversation_id=eq.${activeConversation}`,
+        filter: `conversation_id=eq.${activeConversation}`
       },
-      (payload) => {
-  setMessages(prev => {
-    if (prev.some(m => m.id === payload.new.id)) return prev;
-    return [...prev, payload.new];
-  });
-}
-
+      payload => {
+        setMessages(prev => {
+          // prevent duplicate from optimistic UI
+          if (prev.some(m => m.id === payload.new.id)) return prev;
+          return [...prev, payload.new];
+        });
+      }
     )
     .subscribe();
-const typingChannel = supabase
-    .channel(`typing-${activeConversation}`)
-    .on("broadcast", { event: "typing" }, (payload) => {
-      if (payload.payload.userId !== user.id) {
-        setTypingUser(payload.payload.username);
 
-        // auto clear after 1.5s
-        setTimeout(() => setTypingUser(null), 1500);
-      }
-    })
-    .subscribe();
-
-  return () =>{ supabase.removeChannel(msgChannel);
-  supabase.removeChannel(typingChannel);};
+  return () => supabase.removeChannel(channel);
 }, [activeConversation]);
+
+
 
 
 if (loading) {
@@ -518,34 +523,41 @@ async function fetchConversations() {
 async function sendMessage() {
   if (!text.trim() || !activeConversation || !activeUser) return;
 
-  // ✅ ONLY insert yourself
-  const { error: participantError } = await supabase
-    .from("participants")
-    .upsert(
-      [{ conversation_id: activeConversation, user_id: user.id }],
-      { onConflict: "conversation_id,user_id" }
-    );
+  const tempId = crypto.randomUUID();
 
-  if (participantError) {
-    console.error("Participant error:", participantError);
-    return;
-  }
-
-  // ✅ Insert message
-  const { error } = await supabase.from("messages").insert({
-    conversation_id: activeConversation,
-    sender_id: user.id,
-    receiver_id: activeUser.id,
-    content: text,
-  });
-
-  if (error) {
-    console.error("Send message error:", error);
-    return;
-  }
+  // 1️⃣ Optimistic UI insert
+  setMessages(prev => [
+    ...prev,
+    {
+      id: tempId,
+      content: text,
+      sender_id: user.id,
+      conversation_id: activeConversation,
+      created_at: new Date().toISOString(),
+      status: "pending", // UI-only
+    }
+  ]);
 
   setText("");
+
+  // 2️⃣ Background DB insert
+  const { error } = await supabase.from("messages").insert({
+    content: text,
+    sender_id: user.id,
+    receiver_id: activeUser.id,
+    conversation_id: activeConversation,
+  });
+
+  // 3️⃣ Resolve status
+  setMessages(prev =>
+    prev.map(m =>
+      m.id === tempId
+        ? { ...m, status: error ? "failed" : "sent" }
+        : m
+    )
+  );
 }
+
 
 
 
