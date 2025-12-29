@@ -1,318 +1,791 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import "./chat.css";
 import UserSearch from "./UserSearch";
 import { useAuth } from "../hooks/useAuth";
 
-export default function ChatLayout() {
-  const { user, loading, isBanned, bannedUntil, role } = useAuth();
 
-  const [conversations, setConversations] = useState([]);
-  const [activeConversation, setActiveConversation] = useState(null);
-  const [activeUser, setActiveUser] = useState(null);
+
+export default function ChatLayout() {
+  //const [user, setUser] = useState(null);
+  //const [loading, setLoading] = useState(true);
 
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
+  const [activeConversation, setActiveConversation] = useState(null);
+  const [activeUser, setActiveUser] = useState(null);
+  const [conversations, setConversations] = useState([]);
+  //const [typing, setTyping] = useState(false);
+//const typingChannel = supabase.channel("typing");
+const [onlineUsers, setOnlineUsers] = useState({});
+const [typingUser, setTypingUser] = useState(null);
+//const { userr } = useAuth(); // ✅ REQUIRED
+const { user, loading, isBanned, bannedUntil, role } = useAuth();
 
-  const [onlineUsers, setOnlineUsers] = useState({});
-  const [typingUser, setTypingUser] = useState(null);
 
-  const messagesEndRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
 
-  /* --------------------------------------------------
-     AUTH & PRESENCE
-  -------------------------------------------------- */
 
-  useEffect(() => {
-    if (!user?.id || loading) return;
 
-    fetchConversations();
 
-    const presence = supabase.channel("online", {
-      config: { presence: { key: user.id } },
+  const [recording, setRecording] = useState(false);
+const [mediaRecorder, setMediaRecorder] = useState(null);
+const [audioChunks, setAudioChunks] = useState([]);
+
+
+
+  //const receiverId = user?.id; // temporary
+  //const isAdmin = user?.email === "gamingwithtoxic0@gmail.com";
+  const isAdmin = role === "admin";
+
+
+useEffect(() => {
+  if (!activeConversation) return;
+
+  fetchMessages(activeConversation);
+}, [activeConversation]);
+
+
+/*useEffect(() => {
+  if (!user) return;
+  fetchConversations();
+}, [user]);*/
+
+/*useEffect(() => {
+  console.log("USER:", user);
+}, [user]);*/
+
+
+  
+/* useEffect(() => {
+    // Initial session
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null);
+      setLoading(false);
     });
 
-    presence.on("presence", { event: "sync" }, () => {
-      const state = presence.presenceState();
-      const online = {};
-      Object.keys(state).forEach(id => (online[id] = true));
-      setOnlineUsers(online);
-    });
-
-    presence.subscribe(async status => {
-      if (status === "SUBSCRIBED") {
-        await presence.track({ online: true });
+    // Listen for auth changes
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setUser(session?.user ?? null);
+        setLoading(false);
       }
-    });
-
-    return () => supabase.removeChannel(presence);
-  }, [user?.id, loading]);
-
-  /* --------------------------------------------------
-     CONVERSATIONS
-  -------------------------------------------------- */
-
-  async function fetchConversations() {
-    const { data, error } = await supabase
-      .from("conversations")
-      .select(`
-        id,
-        messages (
-          id, content, created_at, read, receiver_id, sender_id
-        ),
-        participants (
-          user_id,
-          profiles (id, username, avatar_url)
-        )
-      `);
-
-    if (error) return console.error(error);
-
-    const cleaned = data
-      .filter(c =>
-        c.participants?.some(p => p.user_id === user.id)
-      )
-      .map(c => {
-        const otherUser = c.participants
-          .map(p => p.profiles)
-          .find(p => p?.id !== user.id);
-
-        const lastMessage = [...(c.messages || [])]
-          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
-
-        return {
-          conversation_id: c.id,
-          otherUser,
-          lastMessage,
-          lastMessageTime: lastMessage?.created_at,
-        };
-      })
-      .filter(c => c.otherUser);
-
-    cleaned.sort(
-      (a, b) =>
-        new Date(b.lastMessageTime || 0) -
-        new Date(a.lastMessageTime || 0)
     );
 
-    setConversations(cleaned);
-  }
+    return () => listener.subscription.unsubscribe();
+  }, []);*/
 
-  /* --------------------------------------------------
-     OPEN CONVERSATION
-  -------------------------------------------------- */
 
-  async function openConversation(otherUser) {
+
+
+/*useEffect(() => {
+  if (!user) return;
+
+  fetchConversations();
+
+  const presenceChannel = supabase.channel("online", {
+    config: {
+      presence: { key: user.id },
+    },
+  });
+
+  presenceChannel.on("presence", { event: "sync" }, () => {
+    const state = presenceChannel.presenceState();
+    const online = {};
+
+    Object.keys(state).forEach((id) => {
+      online[id] = true;
+    });
+
+    setOnlineUsers(online);
+  });
+
+  presenceChannel.subscribe(async (status) => {
+    if (status === "SUBSCRIBED") {
+      await presenceChannel.track({ online: true });
+    }
+  });
+
+  return () => {
+    supabase.removeChannel(presenceChannel);
+  };
+}, [user]);*/
+  useEffect(() => {
+  if (loading || !user?.id) return;
+
+  // 1️⃣ Fetch conversations after login
+  fetchConversations();
+
+  // 2️⃣ Create presence channel
+  const presenceChannel = supabase.channel("online", {
+    config: { presence: { key: user.id } },
+  });
+
+  // 3️⃣ Listen for online users
+  presenceChannel.on("presence", { event: "sync" }, () => {
+    const state = presenceChannel.presenceState();
+    if (!state) return;
+
+    const online = {};
+    Object.keys(state).forEach((id) => {
+      online[id] = true;
+    });
+
+    setOnlineUsers(online);
+  });
+
+  // 4️⃣ Subscribe once
+  presenceChannel.subscribe(async (status) => {
+    if (status === "SUBSCRIBED") {
+      await presenceChannel.track({ online: true });
+    }
+  });
+
+  // 5️⃣ Cleanup on unmount or user change
+  return () => {
+    supabase.removeChannel(presenceChannel);
+  };
+}, [loading, user?.id]);
+
+
+
+useEffect(() => {
+  if (!user?.id) return;
+
+  const sidebarChannel = supabase
+    .channel("sidebar-updates")
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        table: "messages",
+      },
+      (payload) => {
+        const msg = payload.new;
+
+        // Only refresh if message involves me
+        if (msg.sender_id === user.id || msg.receiver_id === user.id) {
+          fetchConversations(); // 🔥 THIS IS THE FIX
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(sidebarChannel);
+  };
+}, [user?.id]);
+
+
+
+
+
+
+async function openConversation(otherUser) {
+  const { data: shared } = await supabase
+    .from("participants")
+    .select("conversation_id")
+    .eq("user_id", user.id);
+
+  const myConversationIds = shared
+  .map(p => p.conversation_id)
+  .filter(Boolean); // 🚨 CRITICAL
+if (myConversationIds.length === 0) {
+  // no previous conversations at all
+} 
+
+
+  if (myConversationIds.length > 0) {
     const { data: existing } = await supabase
       .from("participants")
       .select("conversation_id")
-      .eq("user_id", user.id);
+      .in("conversation_id", myConversationIds)
+      .eq("user_id", otherUser.id)
+      .limit(1);
 
-    const ids = existing?.map(p => p.conversation_id);
-
-    let convoId = null;
-
-    if (ids?.length) {
-      const { data } = await supabase
-        .from("participants")
-        .select("conversation_id")
-        .in("conversation_id", ids)
-        .eq("user_id", otherUser.id)
-        .single();
-
-      convoId = data?.conversation_id;
+    if (existing && existing.length > 0) {
+      const conversationId = existing[0].conversation_id;
+      setActiveConversation(conversationId);
+      setActiveUser(otherUser);
+      //fetchMessages(conversationId); // ✅ REQUIRED
+      return;
     }
-
-    if (!convoId) {
-      const { data: convo } = await supabase
-        .from("conversations")
-        .insert({})
-        .select()
-        .single();
-
-      await supabase.from("participants").insert([
-        { conversation_id: convo.id, user_id: user.id },
-        { conversation_id: convo.id, user_id: otherUser.id },
-      ]);
-
-      convoId = convo.id;
-    }
-
-    setActiveConversation(convoId);
-    setActiveUser(otherUser);
   }
 
-  /* --------------------------------------------------
-     FETCH + REALTIME MESSAGES
-  -------------------------------------------------- */
+  // Create new conversation
+  const { data: newConvo } = await supabase
+    .from("conversations")
+    .insert({})
+    .select()
+    .single();
 
-  useEffect(() => {
-    if (!activeConversation) return;
+  await supabase.from("participants").insert([
+    { conversation_id: newConvo.id, user_id: user.id },
+    { conversation_id: newConvo.id, user_id: otherUser.id },
+  ]);
 
-    fetchMessages(activeConversation);
+  setActiveConversation(newConvo.id);
+  setActiveUser(otherUser);
+  //fetchMessages(newConvo.id); // ✅ REQUIRED
+}
 
-    const channel = supabase
-      .channel(`chat:${activeConversation}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          table: "messages",
-          filter: `conversation_id=eq.${activeConversation}`,
+
+
+
+//meassage
+
+
+async function startRecording() {
+  if (!navigator.mediaDevices || !user) {
+    alert("Audio recording not supported");
+    return;
+  }
+
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const recorder = new MediaRecorder(stream);
+  const chunks = [];
+
+  recorder.ondataavailable = (e) => {
+    if (e.data.size > 0) chunks.push(e.data);
+  };
+
+  recorder.onstop = async () => {
+    const audioBlob = new Blob(chunks, { type: "audio/webm" });
+
+    const filePath = `${user.id}/voice-${Date.now()}.webm`;
+
+    const { error } = await supabase.storage
+      .from("chat-files")
+      .upload(filePath, audioBlob);
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+
+    const { data } = supabase.storage
+      .from("chat-files")
+      .getPublicUrl(filePath);
+
+    await supabase.from("messages").insert({
+  conversation_id: activeConversation,
+  sender_id: user.id,
+  audio_url: data.publicUrl,
+});
+
+  };
+
+  recorder.start();
+  setMediaRecorder(recorder);
+  setRecording(true);
+}
+
+function stopRecording() {
+  if (mediaRecorder) {
+    mediaRecorder.stop();
+    setRecording(false);
+  }
+}
+useEffect(() => {
+  if (!user || !activeConversation) return;
+
+  // Mark DB messages as read
+  supabase
+    .from("messages")
+    .update({ read: true })
+    .eq("conversation_id", activeConversation)
+    .eq("receiver_id", user.id)
+    .eq("read", false);
+
+  // Update local unread state safely
+  setConversations(prev =>
+    prev.map(c => {
+      if (c.conversation_id !== activeConversation) return c;
+
+      return {
+        ...c,
+        conversations: {
+          ...c.conversations,
+          messages: (c.conversations.messages || []).map(m =>
+            m.receiver_id === user.id ? { ...m, read: true } : m
+          ),
         },
-        payload => {
-          setMessages(prev =>
-            prev.some(m => m.id === payload.new.id)
-              ? prev
-              : [...prev, payload.new]
-          );
-        }
+      };
+    })
+  );
+}, [activeConversation, user]);
+
+
+
+useEffect(() => {
+  const el = document.querySelector(".messages");
+  if (el) el.scrollTop = el.scrollHeight;
+}, [messages]);
+
+
+useEffect(() => {
+  if (!activeConversation) return;
+
+  const msgChannel = supabase
+    .channel(`messages-${activeConversation}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        table: "messages",
+        filter: `conversation_id=eq.${activeConversation}`,
+      },
+      (payload) => {
+  setMessages(prev => {
+    if (prev.some(m => m.id === payload.new.id)) return prev;
+    return [...prev, payload.new];
+  });
+}
+
+    )
+    .subscribe();
+const typingChannel = supabase
+    .channel(`typing-${activeConversation}`)
+    .on("broadcast", { event: "typing" }, (payload) => {
+      if (payload.payload.userId !== user.id) {
+        setTypingUser(payload.payload.username);
+
+        // auto clear after 1.5s
+        setTimeout(() => setTypingUser(null), 1500);
+      }
+    })
+    .subscribe();
+
+  return () =>{ supabase.removeChannel(msgChannel);
+  supabase.removeChannel(typingChannel);};
+}, [activeConversation]);
+
+
+if (loading) {
+  return <div style={{ padding: 20 }}>Loading session…</div>;
+}
+
+if (!user) {
+  return <div style={{ padding: 20 }}>Not authenticated</div>;
+}
+
+
+
+
+if (isBanned) {
+  return (
+    <div style={{ textAlign: "center", padding: 40 }}>
+      <h2>🚫 You are banned</h2>
+      {bannedUntil && (
+        <p>Banned until: {new Date(bannedUntil).toLocaleString()}</p>
+      )}
+    </div>
+  );
+}
+
+
+async function fetchConversations() {
+  const { data, error } = await supabase
+    .from("conversations")
+    .select(`
+      id,
+      is_group,
+      name,
+      messages (
+        id,
+        content,
+        created_at,
+        read,
+        receiver_id,
+        sender_id
+      ),
+      participants (
+        user_id,
+        profiles (
+          id,
+          username,
+          avatar_url
+        )
       )
-      .subscribe();
+    `);
 
-    const typing = supabase
-      .channel(`typing:${activeConversation}`)
-      .on("broadcast", { event: "typing" }, payload => {
-        if (payload.payload.userId !== user.id) {
-          setTypingUser(payload.payload.username);
-          clearTimeout(typingTimeoutRef.current);
-          typingTimeoutRef.current = setTimeout(
-            () => setTypingUser(null),
-            1500
-          );
-        }
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-      supabase.removeChannel(typing);
-    };
-  }, [activeConversation]);
-
-  async function fetchMessages(convoId) {
-    const { data } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("conversation_id", convoId)
-      .order("created_at");
-
-    setMessages(data || []);
+  if (error) {
+    console.error("fetchConversations error:", error);
+    return;
   }
 
-  /* --------------------------------------------------
-     OPTIMISTIC SEND
-  -------------------------------------------------- */
+  const cleaned = data
+    // ✅ only my conversations
+    .filter(convo => {
+  const participantIds = convo.participants?.map(p => p.user_id) || [];
+  return participantIds.includes(user.id);
+})
 
-  async function sendMessage() {
-    if (!text.trim()) return;
+    .map(convo => {
+      const otherUser = convo.participants
+        .map(p => p.profiles)
+        .find(p => p && p.id !== user.id);
 
-    const tempId = crypto.randomUUID();
+      // 🔥 FORCE last message
+      const lastMessage = convo.messages
+        ?.slice()
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
 
-    setMessages(prev => [
-      ...prev,
-      {
-        id: tempId,
-        content: text,
-        sender_id: user.id,
-        created_at: new Date().toISOString(),
-        pending: true,
-      },
-    ]);
+      return {
+        conversation_id: convo.id,
+        conversations: {
+          ...convo,
+          messages: lastMessage ? [lastMessage] : [],
+        },
+        otherUser,
+        lastMessageTime: lastMessage?.created_at || null,
+      };
+    })
+    .filter(c => c.otherUser);
 
-    setText("");
+  // 🔥 SORT conversations by last message
+  cleaned.sort((a, b) => {
+    if (!a.lastMessageTime) return 1;
+    if (!b.lastMessageTime) return -1;
+    return new Date(b.lastMessageTime) - new Date(a.lastMessageTime);
+  });
 
-    const { error } = await supabase.from("messages").insert({
+  setConversations(cleaned);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  async function fetchMessages(conversationId) {
+  const { data } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("conversation_id", conversationId)
+    .order("created_at");
+
+  setMessages(data || []);
+}
+
+
+
+ /* async function sendMessage() {
+  if (!text.trim() || !activeConversation || !activeUser) return;
+
+  // 🔥 ENSURE participants exist FIRST
+  const { error: participantError } = await supabase
+    .from("participants")
+    .upsert(
+      [
+        { conversation_id: activeConversation, user_id: user.id },
+        { conversation_id: activeConversation, user_id: activeUser.id },
+      ],
+      { onConflict: "conversation_id,user_id" }
+    );
+
+  if (participantError) {
+    console.error("Participant upsert error:", participantError);
+    return;
+  }
+
+  // 🔥 THEN insert message
+  const { error: messageError } = await supabase
+    .from("messages")
+    .insert({
       conversation_id: activeConversation,
       sender_id: user.id,
       receiver_id: activeUser.id,
       content: text,
     });
 
-    setMessages(prev =>
-      prev.map(m =>
-        m.id === tempId ? { ...m, pending: false, failed: !!error } : m
-      )
-    );
+  if (messageError) {
+    console.error("Send message error:", messageError);
+    return;
   }
 
-  /* --------------------------------------------------
-     SCROLL CONTROL
-  -------------------------------------------------- */
+  // 🔥 UI cleanup only
+  setText("");
+}
+*/
+async function sendMessage() {
+  if (!text.trim() || !activeConversation || !activeUser) return;
 
-  useLayoutEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  /* --------------------------------------------------
-     RENDER
-  -------------------------------------------------- */
-
-  if (loading) return <div>Loading…</div>;
-  if (!user) return <div>Not authenticated</div>;
-  if (isBanned)
-    return (
-      <div style={{ padding: 40, textAlign: "center" }}>
-        <h2>🚫 You are banned</h2>
-        {bannedUntil && <p>Until {new Date(bannedUntil).toLocaleString()}</p>}
-      </div>
+  // ✅ ONLY insert yourself
+  const { error: participantError } = await supabase
+    .from("participants")
+    .upsert(
+      [{ conversation_id: activeConversation, user_id: user.id }],
+      { onConflict: "conversation_id,user_id" }
     );
+
+  if (participantError) {
+    console.error("Participant error:", participantError);
+    return;
+  }
+
+  // ✅ Insert message
+  const { error } = await supabase.from("messages").insert({
+    conversation_id: activeConversation,
+    sender_id: user.id,
+    receiver_id: activeUser.id,
+    content: text,
+  });
+
+  if (error) {
+    console.error("Send message error:", error);
+    return;
+  }
+
+  setText("");
+}
+
+
+
+
+async function deleteConversation(conversationId) {
+  await supabase
+    .from("participants")
+    .delete()
+    .eq("conversation_id", conversationId)
+    .eq("user_id", user.id);
+
+  setConversations(prev =>
+    prev.filter(c => c.conversation_id !== conversationId)
+  );
+
+  setActiveConversation(null);
+  setActiveUser(null);
+}
+
+async function createGroup(name, memberIds) {
+  const { data: convo } = await supabase
+    .from("conversations")
+    .insert({ is_group: true, name })
+    .select()
+    .single();
+
+  const rows = memberIds.map(id => ({
+    conversation_id: convo.id,
+    user_id: id,
+  }));
+
+  await supabase.from("participants").insert(rows);
+}
+
+
+
+
 
   return (
     <div className="chat-app">
       <aside className="sidebar">
-        <strong>Photogram</strong>
-        <UserSearch onSelect={openConversation} />
+  <div className="sidebar-header">
+    <strong>Photogram</strong>
+  </div>
 
-        {conversations.map(c => (
-          <button
-            key={c.conversation_id}
-            onClick={() => {
-              setActiveConversation(c.conversation_id);
-              setActiveUser(c.otherUser);
-            }}
-            className={
-              activeConversation === c.conversation_id ? "active" : ""
-            }
-          >
-            <img src={c.otherUser.avatar_url || "/avatar.png"} width={36} />
-            <span>{c.otherUser.username}</span>
-          </button>
-        ))}
-      </aside>
+  <UserSearch onSelect={openConversation} />
+
+  <div className="conversation-list">
+  {conversations.map((item) => {
+    const convo = item.conversations;
+
+    const otherUser = convo.participants
+      ?.map(p => p.profiles)
+      ?.find(p => p?.id && p.id !== user.id);
+
+    const lastMessage = convo.messages?.[0];
+
+    const unreadCount = convo.messages?.filter(
+      m => !m.read && m.receiver_id === user.id
+    ).length;
+
+    const isDeleted = !otherUser?.id;
+
+
+    return (
+      <button
+        key={convo.id}
+        className={`conversation-item ${
+    activeConversation === convo.id ? "active" : ""
+  }`}
+        disabled={isDeleted}
+        onClick={() => {
+          if (isDeleted) return;
+          setActiveConversation(convo.id);
+          setActiveUser(otherUser);
+          //fetchMessages(convo.id);
+        }}
+      >
+        <div className="avatar-wrapper">
+          <img
+            src={otherUser?.avatar_url || "/avatar.png"}
+            width={36}
+          />
+          {otherUser?.id && onlineUsers[otherUser.id] && (
+            <span className="online-dot" />
+          )}
+        </div>
+
+        <div className="conversation-info">
+          <div className="name">
+            {otherUser?.username || "Deleted User"}
+          </div>
+
+          <div className="preview">
+            {lastMessage?.content || "No messages yet"}
+          </div>
+        </div>
+
+        {unreadCount > 0 && (
+          <span className="unread-badge">{unreadCount}</span>
+        )}
+      </button>
+    );
+  })}
+</div>
+
+
+</aside>
+
+
 
       <main className="chat-window">
-        <div className="messages">
-          {messages.map(m => (
-            <div
-              key={m.id}
-              className={`msg ${m.sender_id === user.id ? "right" : "left"}`}
-            >
-              {m.content}
-              {m.pending && <span className="pending">⏳</span>}
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
+        <div className="chat-header">
+  {activeConversation && activeUser ? (
+    <div className="chat-header-user">
+      <img
+        src={activeUser.avatar_url || "/avatar.png"}
+        alt="avatar"
+      />
+
+      <div>
+        <div className="username">
+          {activeUser.username}
         </div>
 
-        {typingUser && <div className="typing">{typingUser} typing…</div>}
+        <div className="status">
+          {onlineUsers[activeUser.id] ? "Online" : "Offline"}
+        </div>
+      </div>
+    </div>
+  ) : activeConversation ? (
+    <div className="chat-header-user">
+      <div>
+        <div className="username">Deleted User</div>
+        <div className="status">User no longer available</div>
+      </div>
+    </div>
+  ) : (
+    <div className="chat-header-empty">
+      Select a chat
+    </div>
+  )}
+</div>
+
+
+
+
+
+
+
+            
+{!activeConversation ? (
+  conversations.length === 0 ? (
+    <div style={{ padding: 40, textAlign: "center", opacity: 0.7 }}>
+      <h3>No conversations yet</h3>
+      <p>Search for a user to start chatting</p>
+    </div>
+  ) : (
+    <div style={{ padding: 20, opacity: 0.6 }}>
+      Select a chat to start messaging
+    </div>
+  )
+) : (
+  <div className="messages">
+  {messages.length === 0 ? (
+    <div className="empty-chat">
+      No messages yet
+    </div>
+  ) : (
+    messages.map((msg) => {
+      const isMe = msg.sender_id === user.id;
+      return (
+        <div key={msg.id} className={`msg ${isMe ? "right" : "left"}`}>
+  {msg.content && <span>{msg.content}</span>}
+
+  {msg.audio_url && (
+    <audio controls src={msg.audio_url} style={{ width: "220px" }} />
+  )}
+
+  <span className="time">
+    {new Date(msg.created_at).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    })}
+  </span>
+</div>
+
+      );
+    })
+  )}
+</div>
+
+)}
+
+
+
+{typingUser && (
+  <div style={{ padding: 6, fontSize: 12, opacity: 0.7 }}>
+    {typingUser} is typing…
+  </div>
+)}
+
+
 
         <div className="chat-input">
-          <input
-            value={text}
-            onChange={e => {
-              setText(e.target.value);
-              supabase.channel(`typing:${activeConversation}`).send({
-                type: "broadcast",
-                event: "typing",
-                payload: { userId: user.id, username: user.username },
-              });
-            }}
-            placeholder="Message…"
-          />
-          <button onClick={sendMessage}>➤</button>
-        </div>
+  <input
+    value={text}
+    disabled={!activeUser}
+    placeholder={
+      activeUser
+        ? "Message..."
+        : "You cannot message this user"
+    }
+    onChange={(e) => {
+      setText(e.target.value);
+
+      if (!activeConversation || !activeUser) return;
+
+      supabase.channel(`typing-${activeConversation}`).send({
+        type: "broadcast",
+        event: "typing",
+        payload: {
+          userId: user.id,
+          username: user.username,
+        },
+      });
+    }}
+  />
+
+  <button
+    className="send"
+    disabled={!activeUser || !text.trim()}
+    onClick={sendMessage}
+  >
+    ➤
+  </button>
+</div>
+
+
+
       </main>
     </div>
   );
