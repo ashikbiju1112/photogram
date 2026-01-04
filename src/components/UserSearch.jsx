@@ -51,6 +51,8 @@ export default function UserSearch({ onSelect }) {
     onClick={() => {
   console.log("CLICKED USER:", profile);
   onSelect(profile);
+  setQuery("");
+  setResults([]);
 }}
 
     style={{

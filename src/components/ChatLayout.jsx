@@ -298,22 +298,68 @@ export default function ChatLayout() {
 
   /* ---------------- UI ---------------- */
 
+async function openOrCreateConversation(otherUser) {
+  // 1️⃣ Find shared conversation
+  const { data: shared } = await supabase
+    .from("participants")
+    .select("conversation_id")
+    .eq("user_id", user.id);
+
+  const myConversationIds = (shared || [])
+    .map(p => p.conversation_id)
+    .filter(Boolean);
+
+  if (myConversationIds.length > 0) {
+    const { data: existing } = await supabase
+      .from("participants")
+      .select("conversation_id")
+      .in("conversation_id", myConversationIds)
+      .eq("user_id", otherUser.id)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      return existing[0].conversation_id;
+    }
+  }
+
+  // 2️⃣ Create new conversation
+  const { data: convo } = await supabase
+    .from("conversations")
+    .insert({})
+    .select()
+    .single();
+
+  await supabase.from("participants").insert([
+    { conversation_id: convo.id, user_id: user.id },
+    { conversation_id: convo.id, user_id: otherUser.id },
+  ]);
+
+  return convo.id;
+}
+
+
   return (
     <div className="chat-app">
       <aside className={`sidebar ${sidebarOpen ? "open" : "hidden"}`}>
         <strong>Photogram</strong>
         <UserSearch
-          onSelect={u => {
-            setActiveUser(u);
-            setActiveConversation(u.conversation_id);
-            setSidebarOpen(false);
-          }}
-        />
+  onSelect={async (u) => {
+    const convoId = await openOrCreateConversation(u);
+    setActiveUser(u);
+    setActiveConversation(convoId);
+    setSidebarOpen(false);
+  }}
+/>
+
       </aside>
 
       <main className="chat-window">
         {!activeConversation ? (
-          <div className="empty-chat">Select a chat</div>
+          <div className="empty-chat">
+  <h2>💬 Start a conversation</h2>
+  <p>Select a user from the left to begin chatting.</p>
+</div>
+
         ) : (
           <>
             <div
