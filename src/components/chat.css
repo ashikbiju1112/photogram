@@ -194,7 +194,7 @@
   padding: 10px 18px;
   border-radius: 20px;
   cursor: pointer;
-  background: var(--accent); color: #fff;
+  background: var(--accent); color: #020101;
 }
 
 .chat-input button.rec {
@@ -216,7 +216,7 @@
 }
 
 .chat-window {
-  background-image: url("https://i.imgur.com/6Iej2c3.png");
+  background-image: url("https://www.freepik.com/vectors/hd-wallpapers-pc-4khttps://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTn-A6Iy-dlrEomw9wgTTI-XgIcYIfo_PXw9w&s");
   background-size: cover;
 }
 

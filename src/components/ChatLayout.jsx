@@ -25,6 +25,8 @@ const [page, setPage] = useState(0);
   const messagesEndRef = useRef(null);
   const typingTimeout = useRef(null);
   const [oldestTimestamp, setOldestTimestamp] = useState(null);
+const [reactions, setReactions] = useState({});
+const [replyTo, setReplyTo] = useState(null);
 
   const [selectedMessage, setSelectedMessage] = useState(null);
 let pressTimer;
@@ -312,6 +314,18 @@ useEffect(() => {
     }
   }
 
+
+
+
+/* ====================Reaction================== */
+  async function react(messageId, emoji) {
+  await supabase.from("message_reactions").upsert({
+    message_id: messageId,
+    user_id: user.id,
+    emoji,
+  });
+}
+
   /* ===================== TYPING ===================== */
 
   function handleTyping(e) {
@@ -545,6 +559,14 @@ async function deleteMessage(messageId) {
             </button>
           )}
         </div>
+        {reactions[msg.id] && (
+  <div style={{ fontSize: 12, marginTop: 4 }}>
+    {Object.entries(reactions[msg.id]).map(([emoji, count]) => (
+      <span key={emoji} style={{ marginRight: 6 }}>
+        {emoji} {count}
+      </span>
+    ))}
+  </div>)}
       </div>
 
                     <div className="time">
