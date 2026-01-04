@@ -24,7 +24,31 @@ const [page, setPage] = useState(0);
   const typingTimeout = useRef(null);
   const [oldestTimestamp, setOldestTimestamp] = useState(null);
 
+  const [selectedMessage, setSelectedMessage] = useState(null);
+let pressTimer;
+
+
   /* ===================== PRESENCE ===================== */
+
+async function react(messageId, emoji) {
+  await supabase.from("message_reactions").upsert({
+    message_id: messageId,
+    user_id: user.id,
+    emoji,
+  });
+}
+
+
+function onPress(msg) {
+  pressTimer = setTimeout(() => {
+    setSelectedMessage(msg);
+  }, 400);
+}
+
+function cancelPress() {
+  clearTimeout(pressTimer);
+}
+
 
   useEffect(() => {
     if (loading || !user?.id) return;
@@ -50,6 +74,42 @@ const [page, setPage] = useState(0);
 
     return () => supabase.removeChannel(presenceChannel);
   }, [loading, user?.id]);
+
+
+//
+useEffect(() => {
+  if (!user?.id) return;
+
+  const callChannel = supabase
+    .channel("calls")
+    .on(
+      "postgres_changes",
+      { event: "INSERT", table: "calls" },
+      payload => {
+        if (payload.new.caller_id !== user.id) {
+          alert("📞 Incoming call");
+        }
+      }
+    )
+    .subscribe();
+
+  return () => supabase.removeChannel(callChannel);
+}, [user?.id]);
+
+
+
+
+function onPress(msg) {
+  pressTimer = setTimeout(() => {
+    setSelectedMessage(msg);
+  }, 400);
+}
+
+function cancelPress() {
+  clearTimeout(pressTimer);
+}
+
+
 
   /* ===================== FETCH CONVERSATIONS ===================== */
 
@@ -193,9 +253,27 @@ useEffect(() => {
   loadMessages(true);
 }, [activeConversation]);
 
+// ✅ MARK MESSAGES AS READ (✔✔ Seen)
+useEffect(() => {
+  if (!activeConversation || !user?.id) return;
+
+  supabase
+    .from("messages")
+    .update({ read_at: new Date().toISOString() })
+    .eq("conversation_id", activeConversation)
+    .neq("sender_id", user.id)   // not my messages
+    .is("read_at", null);        // only unread ones
+}, [activeConversation, user?.id]);
+
+
   /* ===================== SEND MESSAGE ===================== */
 
   async function sendMessage() {
+    if (user.is_muted && new Date(user.muted_until) > new Date()) {
+  alert("You are muted");
+  return;
+}
+
     if (!text.trim() || !activeConversation || !activeUser) return;
 
     const messageId = crypto.randomUUID();
@@ -296,6 +374,61 @@ useEffect(() => {
   return convo.id;
 }
 
+//
+
+useEffect(() => {
+  if (!activeConversation || !user?.id) return;
+
+  supabase
+    .from("messages")
+    .update({ read_at: new Date().toISOString() })
+    .eq("conversation_id", activeConversation)
+    .neq("sender_id", user.id)
+    .is("read_at", null);
+}, [activeConversation]);
+
+
+   /* ====================Reaction================== */
+async function react(messageId, emoji) {
+  await supabase.from("message_reactions").upsert({
+    message_id: messageId,
+    user_id: user.id,
+    emoji,
+  });
+}
+
+
+//
+
+async function startVideoCall() {
+  await supabase.from("calls").insert({
+    conversation_id: activeConversation,
+    caller_id: user.id,
+    type: "video",
+    status: "ringing",
+  });
+}
+
+async function startVoiceCall() {
+  await supabase.from("calls").insert({
+    conversation_id: activeConversation,
+    caller_id: user.id,
+    type: "voice",
+    status: "ringing",
+  });
+}
+
+async function deleteMessage(messageId) {
+  await supabase
+    .from("messages")
+    .update({
+      content: "⚠️ Message removed by admin",
+      deleted_by_admin: true,
+      deleted_at: new Date().toISOString(),
+    })
+    .eq("id", messageId);
+}
+
 
 
   /* ===================== AUTOSCROLL ===================== */
@@ -342,6 +475,31 @@ useEffect(() => {
           </div>
         ) : (
           <>
+          {/* 🔝 CHAT HEADER */}
+  <div className="chat-header">
+    <div className="chat-header-user">
+      <img
+        src={activeUser?.avatar_url || "/avatar.png"}
+        alt=""
+        width={36}
+        height={36}
+      />
+      <div>
+        <div className="username">{activeUser?.username}</div>
+        {onlineUsers[activeUser?.id] && (
+          <div className="status">online</div>
+        )}
+      </div>
+    </div>
+
+    <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
+      {/* 📞 Optional voice */}
+      <button onClick={startVoiceCall}>📞</button>
+
+      {/* 📹 VIDEO CALL */}
+      <button onClick={startVideoCall}>📹</button>
+    </div>
+  </div>
             <div
               className="messages"
               onScroll={e => {
@@ -352,16 +510,54 @@ useEffect(() => {
 
             >
               {messages.map(msg => {
-                const isMe = msg.sender_id === user.id;
-                return (
-                  <div key={msg.id} className={`msg ${isMe ? "right" : "left"}`}>
-                    {msg.content}
+  const isMe = msg.sender_id === user.id;
+
+  return (
+    <div key={msg.id} className={`msg ${isMe ? "right" : "left"}`}>
+
+      {/* 💬 MESSAGE BUBBLE */}
+      <div onDoubleClick={() => react(msg.id, "❤️")}>
+        <div
+          onMouseDown={() => onPress(msg)}
+          onMouseUp={cancelPress}
+          onTouchStart={() => onPress(msg)}
+          onTouchEnd={cancelPress}
+          style={{ display: "flex", alignItems: "center", gap: 6 }}
+        >
+          <span>{msg.content}</span>
+
+          {/* 🗑 ADMIN DELETE */}
+          {isAdmin && (
+            <button
+              onClick={() => deleteMessage(msg.id)}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                fontSize: 12,
+                color: "red",
+              }}
+              title="Delete message"
+            >
+              🗑
+            </button>
+          )}
+        </div>
+      </div>
+
                     <div className="time">
-                      {isMe && (msg.failed ? "❌ " : "✔ ")}
-                      {new Date(msg.created_at).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {isMe && (
+    msg.read_at
+      ? "✔✔ "
+      : msg.delivered_at
+      ? "✔ "
+      : "⏳ "
+  )}
+
+  {new Date(msg.created_at).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}
                     </div>
                   </div>
                 );
@@ -374,6 +570,8 @@ useEffect(() => {
             <div className="chat-input">
               <input value={text} onChange={handleTyping} />
               <button onClick={sendMessage}>➤</button>
+              <button onClick={startVideoCall}>📹</button>
+
             </div>
           </>
         )}
