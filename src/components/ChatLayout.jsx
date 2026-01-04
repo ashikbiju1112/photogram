@@ -7,7 +7,9 @@ import { useAuth } from "../hooks/useAuth";
 const PAGE_SIZE = 30;
 
 export default function ChatLayout() {
-  const { user, loading, isBanned, bannedUntil } = useAuth();
+ const { user, loading, isBanned, bannedUntil, role } = useAuth();
+const isAdmin = role === "admin";
+
 
   const [messages, setMessages] = useState([]);
   const [hasMore, setHasMore] = useState(true);
