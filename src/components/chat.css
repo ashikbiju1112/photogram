@@ -139,12 +139,15 @@
 .msg.left {
   align-self: flex-start;
   background: white;
+  color: #111;
+  /*border-bottom-left-radius: 6px;  insta ui*/
 }
 
 .msg.right {
    align-self: flex-end;
   background: #4f93ff;
   color: white;
+  /*border-bottom-right-radius: 6px; insta ui*/
 }
 .msg-bubble {
   max-width: 65%;
@@ -320,4 +323,15 @@
 
 .user-result:hover {
   background: #eaeaea;
+}
+
+.msg.right .time {
+  color: rgba(255, 255, 255, 0.85);  /* brighter */
+  font-weight: 500;
+}
+.msg.left .time {
+  color: rgba(0, 0, 0, 0.6);
+}
+.msg {
+  overflow-wrap: anywhere;
 }
