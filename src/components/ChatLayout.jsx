@@ -7,7 +7,7 @@ import { useAuth } from "../hooks/useAuth";
 const PAGE_SIZE = 30;
 
 export default function ChatLayout() {
-  const { user, loading, isBanned, bannedUntil, role } = useAuth();
+  const { user, loading, isBanned, bannedUntil } = useAuth();
 
   const [messages, setMessages] = useState([]);
   const [hasMore, setHasMore] = useState(true);
@@ -20,14 +20,14 @@ export default function ChatLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const messagesEndRef = useRef(null);
-  const messagesContainerRef = useRef(null);
   const typingTimeout = useRef(null);
-  const mediaRecorderRef = useRef(null);
 
-  /* ---------------- PRESENCE (SAFE) ---------------- */
+  /* ===================== PRESENCE ===================== */
 
   useEffect(() => {
     if (loading || !user?.id) return;
+
+    fetchConversations();
 
     const presenceChannel = supabase.channel("online", {
       config: { presence: { key: user.id } },
@@ -46,12 +46,10 @@ export default function ChatLayout() {
       }
     });
 
-    fetchConversations();
-
     return () => supabase.removeChannel(presenceChannel);
   }, [loading, user?.id]);
 
-  /* ---------------- FETCH CONVERSATIONS (OPTIMIZED) ---------------- */
+  /* ===================== FETCH CONVERSATIONS ===================== */
 
   async function fetchConversations() {
     const { data, error } = await supabase
@@ -60,22 +58,11 @@ export default function ChatLayout() {
         conversation_id,
         conversations (
           id,
-          is_group,
-          name,
           participants (
-            profiles (
-              id,
-              username,
-              avatar_url
-            )
+            profiles (id, username, avatar_url)
           ),
           messages (
-            id,
-            content,
-            created_at,
-            read,
-            sender_id,
-            receiver_id
+            id, content, created_at, sender_id, receiver_id
           )
         )
       `)
@@ -86,10 +73,9 @@ export default function ChatLayout() {
       return;
     }
 
-    const mapped = data
+    const cleaned = data
       .map(row => {
         const convo = row.conversations;
-
         const otherUser = convo.participants
           .map(p => p.profiles)
           .find(p => p.id !== user.id);
@@ -104,17 +90,17 @@ export default function ChatLayout() {
           lastMessageTime: lastMessage?.created_at,
         };
       })
-      .filter(c => c.otherUser)
+      .filter(Boolean)
       .sort(
         (a, b) =>
           new Date(b.lastMessageTime || 0) -
           new Date(a.lastMessageTime || 0)
       );
 
-    setConversations(mapped);
+    setConversations(cleaned);
   }
 
-  /* ---------------- FETCH PAGINATED MESSAGES ---------------- */
+  /* ===================== LOAD MESSAGES ===================== */
 
   async function loadMessages(reset = false) {
     if (!activeConversation) return;
@@ -134,9 +120,7 @@ export default function ChatLayout() {
     setHasMore(data.length === PAGE_SIZE);
 
     setMessages(prev =>
-      reset
-        ? data.reverse()
-        : [...data.reverse(), ...prev]
+      reset ? data.reverse() : [...data.reverse(), ...prev]
     );
   }
 
@@ -147,95 +131,86 @@ export default function ChatLayout() {
     loadMessages(true);
   }, [activeConversation]);
 
-  /* ---------------- REALTIME (RECONCILED) ---------------- */
-function openConversation(convo) {
-  setActiveConversation(convo.id);
-  setActiveUser(convo.otherUser);
-  setSidebarOpen(false);
-}
+  /* ===================== REALTIME ===================== */
 
-useEffect(() => {
-  if (!activeConversation) return;
+  useEffect(() => {
+    if (!activeConversation) return;
 
-  const msgChannel = supabase
-    .channel(`messages-${activeConversation}`)
-    .on(
-      "postgres_changes",
-      { event: "INSERT", table: "messages" },
-      payload => {
-        setMessages(prev =>
-          prev.some(m => m.id === payload.new.id)
-            ? prev
-            : [...prev, payload.new]
-        );
-      }
-    )
-    .subscribe();
+    const msgChannel = supabase
+      .channel(`messages-${activeConversation}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          table: "messages",
+          filter: `conversation_id=eq.${activeConversation}`,
+        },
+        payload => {
+          setMessages(prev =>
+            prev.some(m => m.id === payload.new.id)
+              ? prev
+              : [...prev, payload.new]
+          );
+        }
+      )
+      .subscribe();
 
-  const typingChannel = supabase
-    .channel(`typing-${activeConversation}`)
-    .on("broadcast", { event: "typing" }, payload => {
-      if (payload.payload.userId !== user.id) {
-        setTypingUserId(payload.payload.userId);
-        setTimeout(() => setTypingUserId(null), 1200);
-      }
-    })
-    .subscribe();
+    const typingChannel = supabase
+      .channel(`typing-${activeConversation}`)
+      .on("broadcast", { event: "typing" }, payload => {
+        if (payload.payload.userId !== user.id) {
+          setTypingUserId(payload.payload.userId);
+          setTimeout(() => setTypingUserId(null), 1200);
+        }
+      })
+      .subscribe();
 
-  return () => {
-    supabase.removeChannel(msgChannel);
-    supabase.removeChannel(typingChannel);
-  };
-  setMessages([]);
-  setHasMore(true);
-  loadMessages(true);
-}, [activeConversation]);
+    return () => {
+      supabase.removeChannel(msgChannel);
+      supabase.removeChannel(typingChannel);
+    };
+  }, [activeConversation]);
 
-
-  /* ---------------- SEND MESSAGE (OPTIMISTIC + CLEAN) ---------------- */
+  /* ===================== SEND MESSAGE ===================== */
 
   async function sendMessage() {
-  if (!text.trim() || !activeConversation || !activeUser) return;
+    if (!text.trim() || !activeConversation || !activeUser) return;
 
-  const messageId = crypto.randomUUID();
-  const content = text;
+    const messageId = crypto.randomUUID();
+    const content = text;
 
-  // 1️⃣ Optimistic UI
-  setMessages(prev => [
-    ...prev,
-    {
+    setMessages(prev => [
+      ...prev,
+      {
+        id: messageId,
+        content,
+        sender_id: user.id,
+        receiver_id: activeUser.id,
+        created_at: new Date().toISOString(),
+        pending: true,
+      },
+    ]);
+
+    setText("");
+
+    const { error } = await supabase.from("messages").insert({
       id: messageId,
-      content,
+      conversation_id: activeConversation,
       sender_id: user.id,
       receiver_id: activeUser.id,
-      created_at: new Date().toISOString(),
-      pending: true,
-    },
-  ]);
+      content,
+    });
 
-  setText("");
-
-  // 2️⃣ DB insert with SAME id
-  const { error } = await supabase.from("messages").insert({
-    id: messageId, // 🔥 CRITICAL
-    conversation_id: activeConversation,
-    sender_id: user.id,
-    receiver_id: activeUser.id,
-    content,
-  });
-
-  if (error) {
-    setMessages(prev =>
-      prev.map(m =>
-        m.id === messageId ? { ...m, failed: true } : m
-      )
-    );
+    if (error) {
+      setMessages(prev =>
+        prev.map(m =>
+          m.id === messageId ? { ...m, failed: true } : m
+        )
+      );
+    }
   }
-}
 
-
-
-  /* ---------------- TYPING (DEBOUNCED + SAFE) ---------------- */
+  /* ===================== TYPING ===================== */
 
   function handleTyping(e) {
     setText(e.target.value);
@@ -253,45 +228,54 @@ useEffect(() => {
     });
   }
 
-  /* ---------------- AUDIO (FIXED CLEANUP) ---------------- */
+  /* ===================== HELPERS ===================== */
 
-  async function startRecording() {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const recorder = new MediaRecorder(stream);
-    const chunks = [];
-
-    recorder.ondataavailable = e => chunks.push(e.data);
-    recorder.onstop = async () => {
-      stream.getTracks().forEach(track => track.stop());
-
-      const blob = new Blob(chunks, { type: "audio/webm" });
-      const path = `${user.id}/voice-${Date.now()}.webm`;
-
-      await supabase.storage.from("chat-files").upload(path, blob);
-      const { data } = supabase.storage.from("chat-files").getPublicUrl(path);
-
-      await supabase.from("messages").insert({
-        conversation_id: activeConversation,
-        sender_id: user.id,
-        audio_url: data.publicUrl,
-      });
-    };
-
-    recorder.start();
-    mediaRecorderRef.current = recorder;
+  function openConversation(convo) {
+    setActiveConversation(convo.id);
+    setActiveUser(convo.otherUser);
+    setSidebarOpen(false);
   }
 
-  function stopRecording() {
-    mediaRecorderRef.current?.stop();
+  async function openOrCreateConversation(userProfile) {
+    const { data: shared } = await supabase
+      .from("participants")
+      .select("conversation_id")
+      .eq("user_id", user.id);
+
+    const ids = (shared || []).map(p => p.conversation_id);
+
+    if (ids.length) {
+      const { data: existing } = await supabase
+        .from("participants")
+        .select("conversation_id")
+        .in("conversation_id", ids)
+        .eq("user_id", userProfile.id)
+        .limit(1);
+
+      if (existing?.length) return existing[0].conversation_id;
+    }
+
+    const { data: convo } = await supabase
+      .from("conversations")
+      .insert({})
+      .select()
+      .single();
+
+    await supabase.from("participants").insert([
+      { conversation_id: convo.id, user_id: user.id },
+      { conversation_id: convo.id, user_id: userProfile.id },
+    ]);
+
+    return convo.id;
   }
 
-  /* ---------------- AUTO SCROLL (SMART) ---------------- */
+  /* ===================== AUTOSCROLL ===================== */
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  /* ---------------- GUARDS ---------------- */
+  /* ===================== GUARDS ===================== */
 
   if (loading) return <div>Loading…</div>;
   if (!user) return <div>Not authenticated</div>;
@@ -304,78 +288,30 @@ useEffect(() => {
       </div>
     );
 
-  /* ---------------- UI ---------------- */
-
-async function openOrCreateConversation(otherUser) {
-  // 1️⃣ Find shared conversation
-  const { data: shared } = await supabase
-    .from("participants")
-    .select("conversation_id")
-    .eq("user_id", user.id);
-
-  const myConversationIds = (shared || [])
-    .map(p => p.conversation_id)
-    .filter(Boolean);
-
-  if (myConversationIds.length > 0) {
-    const { data: existing } = await supabase
-      .from("participants")
-      .select("conversation_id")
-      .in("conversation_id", myConversationIds)
-      .eq("user_id", otherUser.id)
-      .limit(1);
-
-    if (existing && existing.length > 0) {
-      return existing[0].conversation_id;
-    }
-  }
-
-  // 2️⃣ Create new conversation
-  const { data: convo } = await supabase
-    .from("conversations")
-    .insert({})
-    .select()
-    .single();
-
-  await supabase.from("participants").insert([
-    { conversation_id: convo.id, user_id: user.id },
-    { conversation_id: convo.id, user_id: otherUser.id },
-  ]);
-
-  return convo.id;
-}
-
+  /* ===================== UI ===================== */
 
   return (
     <div className="chat-app">
       <aside className={`sidebar ${sidebarOpen ? "open" : "hidden"}`}>
         <strong>Photogram</strong>
         <UserSearch
-  onSelect={async (u) => {
-    const convoId = await openOrCreateConversation(u);
-
-    openConversation({
-      id: convoId,
-      otherUser: u,
-    });
-  }}
-/>
-
-
+          onSelect={async userProfile => {
+            const convoId = await openOrCreateConversation(userProfile);
+            openConversation({ id: convoId, otherUser: userProfile });
+          }}
+        />
       </aside>
 
       <main className="chat-window">
         {!activeConversation ? (
           <div className="empty-chat">
-  <h2>💬 Start a conversation</h2>
-  <p>Select a user from the left to begin chatting.</p>
-</div>
-
+            <h2>💬 Start a conversation</h2>
+            <p>Select a user from the left</p>
+          </div>
         ) : (
           <>
             <div
               className="messages"
-              ref={messagesContainerRef}
               onScroll={e => {
                 if (e.target.scrollTop === 0 && hasMore) loadMessages();
               }}
@@ -386,7 +322,7 @@ async function openOrCreateConversation(otherUser) {
                   <div key={msg.id} className={`msg ${isMe ? "right" : "left"}`}>
                     {msg.content}
                     <div className="time">
-                      {isMe && (msg.failed ? "❌ " : msg.read ? "✔✔ " : "✔ ")}
+                      {isMe && (msg.failed ? "❌ " : "✔ ")}
                       {new Date(msg.created_at).toLocaleTimeString([], {
                         hour: "2-digit",
                         minute: "2-digit",
