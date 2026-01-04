@@ -22,6 +22,7 @@ const [page, setPage] = useState(0);
 
   const messagesEndRef = useRef(null);
   const typingTimeout = useRef(null);
+  const [oldestTimestamp, setOldestTimestamp] = useState(null);
 
   /* ===================== PRESENCE ===================== */
 
@@ -103,47 +104,52 @@ const [page, setPage] = useState(0);
 
   /* ===================== LOAD MESSAGES ===================== */
 
-  async function loadMessages(reset = false) {
+  async function loadMessages(initial = false) {
   if (!activeConversation || !user?.id) return;
 
-  const currentPage = reset ? 0 : page;
-
-  const { data, error } = await supabase
+  let query = supabase
     .from("messages")
     .select("*")
     .eq("conversation_id", activeConversation)
     .order("created_at", { ascending: false })
-    .range(
-      currentPage * PAGE_SIZE,
-      currentPage * PAGE_SIZE + PAGE_SIZE - 1
-    );
+    .limit(PAGE_SIZE);
+
+  // 🔥 cursor-based pagination
+  if (!initial && oldestTimestamp) {
+    query = query.lt("created_at", oldestTimestamp);
+  }
+
+  const { data, error } = await query;
 
   if (error || !data) return;
 
-  setHasMore(data.length === PAGE_SIZE);
+  if (data.length === 0) {
+    setHasMore(false);
+    return;
+  }
+
+  const reversed = [...data].reverse();
 
   setMessages(prev =>
-    reset ? data.reverse() : [...data.reverse(), ...prev]
+    initial ? reversed : [...reversed, ...prev]
   );
 
-  setPage(currentPage + 1);
+  // 👇 update cursor to OLDEST loaded message
+  setOldestTimestamp(reversed[0].created_at);
 }
 
 
-  useEffect(() => {
-    if (!activeConversation) return;
-    setMessages([]);
-  setHasMore(true);
-  setPage(0);
-  loadMessages(true);
-  }, [activeConversation]);
+
+
 
   /* ===================== REALTIME ===================== */
 
-  useEffect(() => {
-    if (!activeConversation || !user?.id) return;
+  /* ===================== REALTIME (ONLY ONE) ===================== */
 
-    const msgChannel = supabase
+useEffect(() => {
+  if (!activeConversation || !user?.id) return;
+
+  const msgChannel = supabase
     .channel(`messages-${activeConversation}`)
     .on(
       "postgres_changes",
@@ -162,21 +168,30 @@ const [page, setPage] = useState(0);
     )
     .subscribe();
 
-    const typingChannel = supabase
-      .channel(`typing-${activeConversation}`)
-      .on("broadcast", { event: "typing" }, payload => {
-        if (payload.payload.userId !== user.id) {
-          setTypingUserId(payload.payload.userId);
-          setTimeout(() => setTypingUserId(null), 1200);
-        }
-      })
-      .subscribe();
+  const typingChannel = supabase
+    .channel(`typing-${activeConversation}`)
+    .on("broadcast", { event: "typing" }, payload => {
+      if (payload.payload.userId !== user.id) {
+        setTypingUserId(payload.payload.userId);
+        setTimeout(() => setTypingUserId(null), 1200);
+      }
+    })
+    .subscribe();
 
-    return () => {
-      supabase.removeChannel(msgChannel);
-      supabase.removeChannel(typingChannel);
-    };
-  }, [activeConversation]);
+  return () => {
+    supabase.removeChannel(msgChannel);
+    supabase.removeChannel(typingChannel);
+  };
+}, [activeConversation, user?.id]);
+
+useEffect(() => {
+  if (!activeConversation) return;
+
+  setMessages([]);
+  setHasMore(true);
+  setOldestTimestamp(null);
+  loadMessages(true);
+}, [activeConversation]);
 
   /* ===================== SEND MESSAGE ===================== */
 
@@ -323,8 +338,11 @@ const [page, setPage] = useState(0);
             <div
               className="messages"
               onScroll={e => {
-                if (e.target.scrollTop === 0 && hasMore) loadMessages();
-              }}
+  if (e.target.scrollTop === 0 && hasMore) {
+    loadMessages(false);
+  }
+}}
+
             >
               {messages.map(msg => {
                 const isMe = msg.sender_id === user.id;
