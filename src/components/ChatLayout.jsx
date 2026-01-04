@@ -103,7 +103,8 @@ export default function ChatLayout() {
   /* ===================== LOAD MESSAGES ===================== */
 
   async function loadMessages(reset = false) {
-    if (!activeConversation) return;
+  if (!activeConversation || !user?.id) return;
+
 
     const from = reset ? 0 : messages.length;
     const to = from + PAGE_SIZE - 1;
@@ -134,7 +135,7 @@ export default function ChatLayout() {
   /* ===================== REALTIME ===================== */
 
   useEffect(() => {
-    if (!activeConversation) return;
+    if (!activeConversation || !user?.id) return;
 
     const msgChannel = supabase
       .channel(`messages-${activeConversation}`)
@@ -237,10 +238,13 @@ export default function ChatLayout() {
   }
 
   async function openOrCreateConversation(userProfile) {
-    const { data: shared } = await supabase
-      .from("participants")
-      .select("conversation_id")
-      .eq("user_id", user.id);
+  if (!user?.id) return null;
+
+  const { data: shared } = await supabase
+    .from("participants")
+    .select("conversation_id")
+    .eq("user_id", user.id);
+
 
     const ids = (shared || []).map(p => p.conversation_id);
 
