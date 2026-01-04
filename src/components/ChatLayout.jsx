@@ -258,41 +258,45 @@ useEffect(() => {
     setSidebarOpen(false);
   }
 
-  async function openOrCreateConversation(userProfile) {
-  if (!user?.id) return null;
+  async function openOrCreateConversation(otherUser) {
+  if (!user?.id || !otherUser?.id) return null;
 
-  const { data: shared } = await supabase
-    .from("participants")
-    .select("conversation_id")
-    .eq("user_id", user.id);
+  // 🔑 1️⃣ Always compute the SAME key for the same 2 users
+  const conversationKey = [user.id, otherUser.id].sort().join("_");
 
+  // 🔍 2️⃣ Try to find existing conversation
+  const { data: existing, error: findError } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("conversation_key", conversationKey)
+    .single();
 
-    const ids = (shared || []).map(p => p.conversation_id);
-
-    if (ids.length) {
-      const { data: existing } = await supabase
-        .from("participants")
-        .select("conversation_id")
-        .in("conversation_id", ids)
-        .eq("user_id", userProfile.id)
-        .limit(1);
-
-      if (existing?.length) return existing[0].conversation_id;
-    }
-
-    const { data: convo } = await supabase
-      .from("conversations")
-      .insert({})
-      .select()
-      .single();
-
-    await supabase.from("participants").insert([
-      { conversation_id: convo.id, user_id: user.id },
-      { conversation_id: convo.id, user_id: userProfile.id },
-    ]);
-
-    return convo.id;
+  if (existing) {
+    return existing.id; // ✅ reuse old conversation
   }
+
+  // 🆕 3️⃣ Create conversation ONLY if not exists
+  const { data: convo, error: insertError } = await supabase
+    .from("conversations")
+    .insert({ conversation_key: conversationKey }) // 👈 THIS IS WHERE IT GOES
+    .select()
+    .single();
+
+  if (insertError) {
+    console.error("Conversation create error:", insertError);
+    return null;
+  }
+
+  // 👥 4️⃣ Insert participants ONCE
+  await supabase.from("participants").insert([
+    { conversation_id: convo.id, user_id: user.id },
+    { conversation_id: convo.id, user_id: otherUser.id },
+  ]);
+
+  return convo.id;
+}
+
+
 
   /* ===================== AUTOSCROLL ===================== */
 
@@ -320,11 +324,14 @@ useEffect(() => {
       <aside className={`sidebar ${sidebarOpen ? "open" : "hidden"}`}>
         <strong>Photogram</strong>
         <UserSearch
-          onSelect={async userProfile => {
-            const convoId = await openOrCreateConversation(userProfile);
-            openConversation({ id: convoId, otherUser: userProfile });
-          }}
-        />
+  onSelect={async otherUser => {
+    const convoId = await openOrCreateConversation(otherUser);
+    setActiveConversation(convoId);
+    setActiveUser(otherUser);
+    setSidebarOpen(false);
+  }}
+/>
+
       </aside>
 
       <main className="chat-window">
