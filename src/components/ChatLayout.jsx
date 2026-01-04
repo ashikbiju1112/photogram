@@ -4,39 +4,39 @@ import "./chat.css";
 import UserSearch from "./UserSearch";
 import { useAuth } from "../hooks/useAuth";
 
+const PAGE_SIZE = 30;
+
 export default function ChatLayout() {
   const { user, loading, isBanned, bannedUntil, role } = useAuth();
 
   const [messages, setMessages] = useState([]);
+  const [hasMore, setHasMore] = useState(true);
   const [text, setText] = useState("");
   const [activeConversation, setActiveConversation] = useState(null);
   const [activeUser, setActiveUser] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState({});
-  const [typingUser, setTypingUser] = useState(null);
+  const [typingUserId, setTypingUserId] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  const [recording, setRecording] = useState(false);
-  const mediaRecorderRef = useRef(null);
+  const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const typingTimeout = useRef(null);
+  const mediaRecorderRef = useRef(null);
 
-  const isAdmin = role === "admin";
-
-  /* ---------------- AUTH / PRESENCE ---------------- */
+  /* ---------------- PRESENCE (SAFE) ---------------- */
 
   useEffect(() => {
     if (loading || !user?.id) return;
-
-    fetchConversations();
 
     const presenceChannel = supabase.channel("online", {
       config: { presence: { key: user.id } },
     });
 
     presenceChannel.on("presence", { event: "sync" }, () => {
-      const state = presenceChannel.presenceState();
+      const state = presenceChannel.presenceState() || {};
       const online = {};
-      Object.keys(state || {}).forEach(id => (online[id] = true));
+      Object.keys(state).forEach(id => (online[id] = true));
       setOnlineUsers(online);
     });
 
@@ -46,10 +46,12 @@ export default function ChatLayout() {
       }
     });
 
+    fetchConversations();
+
     return () => supabase.removeChannel(presenceChannel);
   }, [loading, user?.id]);
 
-  /* ---------------- FETCH CONVERSATIONS (FIXED) ---------------- */
+  /* ---------------- FETCH CONVERSATIONS (OPTIMIZED) ---------------- */
 
   async function fetchConversations() {
     const { data, error } = await supabase
@@ -60,6 +62,13 @@ export default function ChatLayout() {
           id,
           is_group,
           name,
+          participants (
+            profiles (
+              id,
+              username,
+              avatar_url
+            )
+          ),
           messages (
             id,
             content,
@@ -67,13 +76,6 @@ export default function ChatLayout() {
             read,
             sender_id,
             receiver_id
-          ),
-          participants (
-            profiles (
-              id,
-              username,
-              avatar_url
-            )
           )
         )
       `)
@@ -84,9 +86,10 @@ export default function ChatLayout() {
       return;
     }
 
-    const cleaned = data
+    const mapped = data
       .map(row => {
         const convo = row.conversations;
+
         const otherUser = convo.participants
           .map(p => p.profiles)
           .find(p => p.id !== user.id);
@@ -95,36 +98,56 @@ export default function ChatLayout() {
           ?.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
 
         return {
-          conversation_id: convo.id,
-          conversations: { ...convo, messages: lastMessage ? [lastMessage] : [] },
+          id: convo.id,
           otherUser,
+          lastMessage,
           lastMessageTime: lastMessage?.created_at,
         };
       })
-      .filter(Boolean)
+      .filter(c => c.otherUser)
       .sort(
         (a, b) =>
           new Date(b.lastMessageTime || 0) -
           new Date(a.lastMessageTime || 0)
       );
 
-    setConversations(cleaned);
+    setConversations(mapped);
   }
 
-  /* ---------------- FETCH MESSAGES ---------------- */
+  /* ---------------- FETCH PAGINATED MESSAGES ---------------- */
 
-  useEffect(() => {
+  async function loadMessages(reset = false) {
     if (!activeConversation) return;
 
-    supabase
+    const from = reset ? 0 : messages.length;
+    const to = from + PAGE_SIZE - 1;
+
+    const { data } = await supabase
       .from("messages")
       .select("*")
       .eq("conversation_id", activeConversation)
-      .order("created_at")
-      .then(({ data }) => setMessages(data || []));
+      .order("created_at", { ascending: false })
+      .range(from, to);
+
+    if (!data) return;
+
+    setHasMore(data.length === PAGE_SIZE);
+
+    setMessages(prev =>
+      reset
+        ? data.reverse()
+        : [...data.reverse(), ...prev]
+    );
+  }
+
+  useEffect(() => {
+    if (!activeConversation) return;
+    setMessages([]);
+    setHasMore(true);
+    loadMessages(true);
   }, [activeConversation]);
 
-  /* ---------------- REALTIME ---------------- */
+  /* ---------------- REALTIME (RECONCILED) ---------------- */
 
   useEffect(() => {
     if (!activeConversation) return;
@@ -135,11 +158,17 @@ export default function ChatLayout() {
         "postgres_changes",
         { event: "INSERT", table: "messages" },
         payload => {
-          setMessages(prev =>
-            prev.some(m => m.id === payload.new.id)
-              ? prev
-              : [...prev, payload.new]
-          );
+          setMessages(prev => {
+            const exists = prev.some(
+              m =>
+                m.created_at === payload.new.created_at &&
+                m.sender_id === payload.new.sender_id &&
+                m.content === payload.new.content
+            );
+            return exists ? prev : [...prev, payload.new];
+          });
+
+          fetchConversations();
         }
       )
       .subscribe();
@@ -148,8 +177,8 @@ export default function ChatLayout() {
       .channel(`typing-${activeConversation}`)
       .on("broadcast", { event: "typing" }, payload => {
         if (payload.payload.userId !== user.id) {
-          setTypingUser(payload.payload.username);
-          setTimeout(() => setTypingUser(null), 1200);
+          setTypingUserId(payload.payload.userId);
+          setTimeout(() => setTypingUserId(null), 1200);
         }
       })
       .subscribe();
@@ -160,24 +189,23 @@ export default function ChatLayout() {
     };
   }, [activeConversation]);
 
-  /* ---------------- OPTIMISTIC SEND ---------------- */
+  /* ---------------- SEND MESSAGE (OPTIMISTIC + CLEAN) ---------------- */
 
   async function sendMessage() {
     if (!text.trim() || !activeConversation || !activeUser) return;
 
     const tempId = crypto.randomUUID();
-    const messageText = text;
+    const content = text;
 
     setMessages(prev => [
       ...prev,
       {
         id: tempId,
-        content: messageText,
+        content,
         sender_id: user.id,
         receiver_id: activeUser.id,
         created_at: new Date().toISOString(),
-        read: false,
-        status: "pending",
+        pending: true,
       },
     ]);
 
@@ -187,38 +215,37 @@ export default function ChatLayout() {
       conversation_id: activeConversation,
       sender_id: user.id,
       receiver_id: activeUser.id,
-      content: messageText,
+      content,
     });
 
     if (error) {
       setMessages(prev =>
         prev.map(m =>
-          m.id === tempId ? { ...m, status: "failed" } : m
+          m.id === tempId ? { ...m, failed: true } : m
         )
       );
     }
   }
 
-  /* ---------------- TYPING DEBOUNCE ---------------- */
+  /* ---------------- TYPING (DEBOUNCED + SAFE) ---------------- */
 
   function handleTyping(e) {
     setText(e.target.value);
 
     if (!activeConversation || typingTimeout.current) return;
 
-    typingTimeout.current = setTimeout(
-      () => (typingTimeout.current = null),
-      800
-    );
+    typingTimeout.current = setTimeout(() => {
+      typingTimeout.current = null;
+    }, 800);
 
     supabase.channel(`typing-${activeConversation}`).send({
       type: "broadcast",
       event: "typing",
-      payload: { userId: user.id, username: user.username },
+      payload: { userId: user.id },
     });
   }
 
-  /* ---------------- AUDIO RECORDING FIX ---------------- */
+  /* ---------------- AUDIO (FIXED CLEANUP) ---------------- */
 
   async function startRecording() {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -244,15 +271,19 @@ export default function ChatLayout() {
 
     recorder.start();
     mediaRecorderRef.current = recorder;
-    setRecording(true);
   }
 
   function stopRecording() {
     mediaRecorderRef.current?.stop();
-    setRecording(false);
   }
 
-  /* ---------------- UI GUARDS ---------------- */
+  /* ---------------- AUTO SCROLL (SMART) ---------------- */
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  /* ---------------- GUARDS ---------------- */
 
   if (loading) return <div>Loading…</div>;
   if (!user) return <div>Not authenticated</div>;
@@ -265,16 +296,19 @@ export default function ChatLayout() {
       </div>
     );
 
-  /* ---------------- RENDER ---------------- */
+  /* ---------------- UI ---------------- */
 
   return (
     <div className="chat-app">
       <aside className={`sidebar ${sidebarOpen ? "open" : "hidden"}`}>
         <strong>Photogram</strong>
-        <UserSearch onSelect={u => {
-          setActiveUser(u);
-          setSidebarOpen(false);
-        }} />
+        <UserSearch
+          onSelect={u => {
+            setActiveUser(u);
+            setActiveConversation(u.conversation_id);
+            setSidebarOpen(false);
+          }}
+        />
       </aside>
 
       <main className="chat-window">
@@ -282,14 +316,20 @@ export default function ChatLayout() {
           <div className="empty-chat">Select a chat</div>
         ) : (
           <>
-            <div className="messages">
+            <div
+              className="messages"
+              ref={messagesContainerRef}
+              onScroll={e => {
+                if (e.target.scrollTop === 0 && hasMore) loadMessages();
+              }}
+            >
               {messages.map(msg => {
                 const isMe = msg.sender_id === user.id;
                 return (
                   <div key={msg.id} className={`msg ${isMe ? "right" : "left"}`}>
                     {msg.content}
                     <div className="time">
-                      {isMe && (msg.read ? "✔✔ " : "✔ ")}
+                      {isMe && (msg.failed ? "❌ " : msg.read ? "✔✔ " : "✔ ")}
                       {new Date(msg.created_at).toLocaleTimeString([], {
                         hour: "2-digit",
                         minute: "2-digit",
@@ -298,9 +338,10 @@ export default function ChatLayout() {
                   </div>
                 );
               })}
+              <div ref={messagesEndRef} />
             </div>
 
-            {typingUser && <div>{typingUser} is typing…</div>}
+            {typingUserId && <div>typing…</div>}
 
             <div className="chat-input">
               <input value={text} onChange={handleTyping} />
