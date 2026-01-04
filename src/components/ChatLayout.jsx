@@ -148,6 +148,11 @@ export default function ChatLayout() {
   }, [activeConversation]);
 
   /* ---------------- REALTIME (RECONCILED) ---------------- */
+function openConversation(convo) {
+  setActiveConversation(convo.id);
+  setActiveUser(convo.otherUser);
+  setSidebarOpen(false);
+}
 
 useEffect(() => {
   if (!activeConversation) return;
@@ -181,6 +186,9 @@ useEffect(() => {
     supabase.removeChannel(msgChannel);
     supabase.removeChannel(typingChannel);
   };
+  setMessages([]);
+  setHasMore(true);
+  loadMessages(true);
 }, [activeConversation]);
 
 
@@ -345,11 +353,14 @@ async function openOrCreateConversation(otherUser) {
         <UserSearch
   onSelect={async (u) => {
     const convoId = await openOrCreateConversation(u);
-    setActiveUser(u);
-    setActiveConversation(convoId);
-    setSidebarOpen(false);
+
+    openConversation({
+      id: convoId,
+      otherUser: u,
+    });
   }}
 />
+
 
       </aside>
 
