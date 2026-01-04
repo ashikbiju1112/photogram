@@ -18,6 +18,7 @@ export default function ChatLayout() {
   const [onlineUsers, setOnlineUsers] = useState({});
   const [typingUserId, setTypingUserId] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+const [page, setPage] = useState(0);
 
   const messagesEndRef = useRef(null);
   const typingTimeout = useRef(null);
@@ -105,31 +106,36 @@ export default function ChatLayout() {
   async function loadMessages(reset = false) {
   if (!activeConversation || !user?.id) return;
 
+  const currentPage = reset ? 0 : page;
 
-    const from = reset ? 0 : messages.length;
-    const to = from + PAGE_SIZE - 1;
-
-    const { data } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("conversation_id", activeConversation)
-      .order("created_at", { ascending: false })
-      .range(from, to);
-
-    if (!data) return;
-
-    setHasMore(data.length === PAGE_SIZE);
-
-    setMessages(prev =>
-      reset ? data.reverse() : [...data.reverse(), ...prev]
+  const { data, error } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("conversation_id", activeConversation)
+    .order("created_at", { ascending: false })
+    .range(
+      currentPage * PAGE_SIZE,
+      currentPage * PAGE_SIZE + PAGE_SIZE - 1
     );
-  }
+
+  if (error || !data) return;
+
+  setHasMore(data.length === PAGE_SIZE);
+
+  setMessages(prev =>
+    reset ? data.reverse() : [...data.reverse(), ...prev]
+  );
+
+  setPage(currentPage + 1);
+}
+
 
   useEffect(() => {
     if (!activeConversation) return;
     setMessages([]);
-    setHasMore(true);
-    loadMessages(true);
+  setHasMore(true);
+  setPage(0);
+  loadMessages(true);
   }, [activeConversation]);
 
   /* ===================== REALTIME ===================== */
@@ -138,23 +144,23 @@ export default function ChatLayout() {
     if (!activeConversation || !user?.id) return;
 
     const msgChannel = supabase
-      .channel(`messages-${activeConversation}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          table: "messages",
-          filter: `conversation_id=eq.${activeConversation}`,
-        },
-        payload => {
-          setMessages(prev =>
-            prev.some(m => m.id === payload.new.id)
-              ? prev
-              : [...prev, payload.new]
-          );
-        }
-      )
-      .subscribe();
+    .channel(`messages-${activeConversation}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        table: "messages",
+        filter: `conversation_id=eq.${activeConversation}`,
+      },
+      payload => {
+        setMessages(prev =>
+          prev.some(m => m.id === payload.new.id)
+            ? prev
+            : [...prev, payload.new]
+        );
+      }
+    )
+    .subscribe();
 
     const typingChannel = supabase
       .channel(`typing-${activeConversation}`)
