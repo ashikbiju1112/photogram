@@ -3,7 +3,7 @@ import { supabase } from "../lib/supabase";
 import "./chat.css";
 import UserSearch from "./UserSearch";
 import { useAuth } from "../hooks/useAuth";
-import { StatusUploader } from "./components/StatusUploader";
+import { StatusUploader } from "./StatusUploader";
 
 
 const PAGE_SIZE = 30;
