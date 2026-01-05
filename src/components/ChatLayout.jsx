@@ -114,6 +114,50 @@ function cancelPress() {
 }
 
 
+/* ===================== GROUP CREATION ===================== */
+
+async function createGroup(name, members) {
+  const { data: convo } = await supabase
+    .from("conversations")
+    .insert({ is_group: true, name })
+    .select()
+    .single();
+
+  await supabase.from("participants").insert([
+    { conversation_id: convo.id, user_id: user.id, role: "admin" },
+    ...members.map(u => ({
+      conversation_id: convo.id,
+      user_id: u.id,
+      role: "member",
+    })),
+  ]);
+}
+
+
+ /* ====================== PIN CHAT ===================== */
+
+async function pinChat(conversationId) {
+  await supabase
+    .from("conversations")
+    .update({ pinned: true })
+    .eq("id", conversationId);
+}
+
+ /* ===================== SEARCH MESSAGES ===================== */
+
+
+ async function searchMessages(q) {
+  if (!q) return loadMessages(true);
+
+  const { data } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("conversation_id", activeConversation)
+    .ilike("content", `%${q}%`);
+
+  setMessages(data || []);
+}
+
 
   /* ===================== FETCH CONVERSATIONS ===================== */
 
@@ -163,7 +207,16 @@ function cancelPress() {
           new Date(a.lastMessageTime || 0)
       );
 
-    setConversations(cleaned);
+    cleaned.sort((a, b) => {
+  // 1️⃣ pinned first
+  if (a.pinned !== b.pinned) return b.pinned - a.pinned;
+
+  // 2️⃣ newest message next
+  return new Date(b.lastMessageTime || 0) - new Date(a.lastMessageTime || 0);
+});
+
+setConversations(cleaned);
+
   }
 
   /* ===================== LOAD MESSAGES ===================== */
@@ -472,6 +525,7 @@ async function deleteMessage(messageId) {
     <div className="chat-app">
       <aside className={`sidebar ${sidebarOpen ? "open" : "hidden"}`}>
         <strong>Photogram</strong>
+        <StatusUploader />
         <UserSearch
   onSelect={async otherUser => {
     const convoId = await openOrCreateConversation(otherUser);
@@ -480,8 +534,37 @@ async function deleteMessage(messageId) {
     setSidebarOpen(false);
   }}
 />
+<div className="conversation-list">
+    {conversations.map(convo => (
+      <div
+        key={convo.id}
+        className="conversation-item"
+        onClick={() => openConversation(convo)}
+      >
+        <span>{convo.otherUser.username}</span>
 
+        {/* 📌 PIN BUTTON */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation(); // IMPORTANT
+            pinChat(convo.id);
+          }}
+          title="Pin chat"
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            fontSize: 16,
+            marginLeft: "auto",
+          }}
+        >
+          📌
+        </button>
+      </div>
+    ))}
+  </div>
       </aside>
+
 
       <main className="chat-window">
         {!activeConversation ? (
@@ -507,6 +590,10 @@ async function deleteMessage(messageId) {
         )}
       </div>
     </div>
+<input
+  placeholder="Search messages..."
+  onChange={e => searchMessages(e.target.value)}
+/>
 
     <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
       {/* 📞 Optional voice */}
