@@ -544,7 +544,7 @@ async function deleteMessage(messageId) {
         className="conversation-item"
         onClick={() => openConversation(convo)}
       >
-        <span>{convo.otherUser.username}</span>
+        <span>{convo.other?.username}</span>
 
         {/* 📌 PIN BUTTON */}
         <button
