@@ -21,7 +21,7 @@
 .sidebar {
   width: 280px;
   min-width: 280px;
-  background: #616161;
+  background: #161616; /* WhatsApp/IG style */
   border-right: 1px solid #ddd;
   display: flex;
   flex-direction: column;
