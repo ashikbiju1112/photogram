@@ -107,6 +107,10 @@ useEffect(() => {
 
 
 
+
+
+
+
   /* ===================== PRESENCE ===================== */
 
 
@@ -172,8 +176,32 @@ useEffect(() => {
 
 
 
+//pushIceCandidate
 
+  async function pushIceCandidate(role, candidate, callId) {
+    const { data, error } = await supabase
+      .from("calls")
+      .select("ice_candidates")
+      .eq("id", callId)
+      .single();
 
+    if (error) {
+      console.error("ICE read error", error);
+      return;
+    }
+
+    const ice = data.ice_candidates || { caller: [], callee: [] };
+
+    // 🔴 Prevent duplicates (IMPORTANT)
+    if (!ice[role].some(c => c.candidate === candidate.candidate)) {
+      ice[role].push(candidate);
+    }
+
+    await supabase
+      .from("calls")
+      .update({ ice_candidates: ice })
+      .eq("id", callId);
+  }
 
 
 
@@ -227,6 +255,31 @@ async function searchMessages() {
 }
 
 
+useEffect(() => {
+  const channel = supabase
+    .channel("incoming-calls")
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "calls",
+      },
+      (payload) => {
+        const call = payload.new;
+
+        if (
+          call.status === "ringing" &&
+          call.caller_id !== user.id
+        ) {
+          setIncomingCall(call);
+        }
+      }
+    )
+    .subscribe();
+
+  return () => supabase.removeChannel(channel);
+}, [user.id]);
 
   /* ===================== FETCH CONVERSATIONS ===================== */
 
@@ -444,31 +497,77 @@ const encryptedText = encrypt(text, sharedKey);
     }
   }
 async function acceptCall() {
-  pc = createPeerConnection(async candidate => {
-    await supabase.rpc("add_ice", {
-      call_id: incomingCall.id,
-      candidate,
-    });
+  const call = incomingCall;
+  setIncomingCall(null);
+  setActiveCallId(call.id);
+
+  // 1️⃣ Create peer connection
+  pcRef.current = createPeerConnection({
+    localVideoRef,
+    remoteVideoRef,
+    onIceCandidate: async (candidate) => {
+      await pushIceCandidate("callee", candidate, call.id);
+    },
   });
 
+  // 2️⃣ Media
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: true,
+    video: call.type === "video",
     audio: true,
   });
 
-  stream.getTracks().forEach(track => pc.addTrack(track, stream));
+  stream.getTracks().forEach(track =>
+    pcRef.current.addTrack(track, stream)
+  );
 
-  await pc.setRemoteDescription(incomingCall.offer);
-  const answer = await pc.createAnswer();
-  await pc.setLocalDescription(answer);
+  // 3️⃣ Set offer
+  await pcRef.current.setRemoteDescription(
+    new RTCSessionDescription(call.offer)
+  );
 
+  // 4️⃣ Create answer
+  const answer = await pcRef.current.createAnswer();
+  await pcRef.current.setLocalDescription(answer);
+
+  // 5️⃣ Save answer
   await supabase
     .from("calls")
-    .update({ answer, status: "accepted" })
-    .eq("id", incomingCall.id);
-
-  setIncomingCall(null);
+    .update({
+      status: "accepted",
+      answer,
+    })
+    .eq("id", call.id);
 }
+
+
+useEffect(() => {
+  if (!activeCallId) return;
+
+  const channel = supabase
+    .channel("call-answer")
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "calls",
+        filter: `id=eq.${activeCallId}`,
+      },
+      async (payload) => {
+        const call = payload.new;
+
+        if (call.answer && pcRef.current) {
+          await pcRef.current.setRemoteDescription(
+            new RTCSessionDescription(call.answer)
+          );
+        }
+      }
+    )
+    .subscribe();
+
+  return () => supabase.removeChannel(channel);
+}, [activeCallId]);
+
 
 
 async function rejectCall() {
@@ -577,6 +676,78 @@ useEffect(() => {
 
 
 
+  useEffect(() => {
+    if (!activeCallId) return;
+
+    const channel = supabase
+      .channel(`ice-sync-${activeCallId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "calls",
+          filter: `id=eq.${activeCallId}`,
+        },
+        async (payload) => {
+          if (!pcRef.current) return;
+
+          const ice = payload.new.ice_candidates;
+          if (!ice) return;
+
+          const remoteRole =
+            payload.new.caller_id === user.id
+              ? "callee"
+              : "caller";
+
+          for (const candidate of ice[remoteRole] || []) {
+            try {
+              await pcRef.current.addIceCandidate(
+                new RTCIceCandidate(candidate)
+              );
+            } catch (e) {
+              console.warn("ICE add failed", e);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeCallId, user.id]);
+
+
+
+/*===================== Voice Call =====================*/
+useEffect(() => {
+  if (!activeCallId) return;
+
+  const channel = supabase
+    .channel("call-ended")
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "calls",
+        filter: `id=eq.${activeCallId}`,
+      },
+      (payload) => {
+        if (payload.new.status === "ended") {
+          cleanupCall();
+        }
+      }
+    )
+    .subscribe();
+
+  return () => supabase.removeChannel(channel);
+}, [activeCallId]);
+
+
+
+
 
 
 
@@ -662,6 +833,33 @@ async function startVideoCall(e) {
     .update({ offer })
     .eq("id", callId);
 }
+
+async function endCall() {
+  await supabase
+    .from("calls")
+    .update({ status: "ended" })
+    .eq("id", activeCallId);
+
+  cleanupCall();
+}
+
+function cleanupCall() {
+  if (pcRef.current) {
+    pcRef.current.close();
+    pcRef.current = null;
+  }
+
+  localVideoRef.current?.srcObject
+    ?.getTracks()
+    .forEach(t => t.stop());
+
+  if (localVideoRef.current) localVideoRef.current.srcObject = null;
+  if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+
+  setActiveCallId(null);
+}
+
+
 
 async function deleteMessage(messageId) {
   await supabase
@@ -903,14 +1101,15 @@ async function deleteMessage(messageId) {
         )}
       </main>{incomingCall && (
   <div className="call-overlay">
+    <h2>
+      Incoming {incomingCall.type} call
+    </h2>
 
-
-
-    <h3>📞 Incoming {incomingCall.type} call</h3>
-    <button onClick={acceptCall}>✅ Accept</button>
-    <button onClick={rejectCall}>❌ Reject</button>
+    <button onClick={acceptCall}>Accept</button>
+    <button onClick={rejectCall}>Reject</button>
   </div>
 )}
+
 
     </div>
   );
