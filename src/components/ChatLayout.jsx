@@ -571,8 +571,11 @@ useEffect(() => {
 
 //
 
-async function startVideoCall() {
-  // 1️⃣ Create call row FIRST
+async function startVideoCall(e) {
+  e?.preventDefault();
+  e?.stopPropagation();
+
+  // 1️⃣ Create call row
   const { data, error } = await supabase
     .from("calls")
     .insert({
@@ -585,22 +588,26 @@ async function startVideoCall() {
     .single();
 
   if (error) {
-    console.error("Failed to create call", error);
+    console.error(error);
     return;
   }
 
   const callId = data.id;
   setActiveCallId(callId);
 
-  // 2️⃣ Create PeerConnection AFTER call exists
-  pcRef.current = createPeerConnection(async candidate => {
-    await supabase.rpc("add_ice", {
-      call_id: callId, // ✅ NOW SAFE
-      candidate,
-    });
+  // 2️⃣ Create PeerConnection (FIXED)
+  pcRef.current = createPeerConnection({
+    localVideoRef,
+    remoteVideoRef,
+    onIceCandidate: async (candidate) => {
+      await supabase.rpc("add_ice", {
+        call_id: callId,
+        candidate,
+      });
+    },
   });
 
-  // 3️⃣ Get media
+  // 3️⃣ Media
   const stream = await navigator.mediaDevices.getUserMedia({
     video: true,
     audio: true,
@@ -610,7 +617,7 @@ async function startVideoCall() {
     pcRef.current.addTrack(track, stream)
   );
 
-  // 4️⃣ Create offer
+  // 4️⃣ Offer
   const offer = await pcRef.current.createOffer();
   await pcRef.current.setLocalDescription(offer);
 
@@ -620,6 +627,7 @@ async function startVideoCall() {
     .update({ offer })
     .eq("id", callId);
 }
+
 
 
 
@@ -640,8 +648,10 @@ async function startVoiceCall() {
     return;
   }
 
-  setActiveCallId(data.id);
+  setActiveCallId(data.id); // 🔥 REQUIRED
+  console.log("Voice call started:", data.id);
 }
+
 
 
 async function deleteMessage(messageId) {
@@ -757,7 +767,17 @@ async function deleteMessage(messageId) {
 
     <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
       {/* 📞 Optional voice */}
-      <button onClick={startVoiceCall}>📞</button>
+      <button
+  type="button"
+  onClick={(e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    startVoiceCall();
+  }}
+>
+  📞
+</button>
+
 
       {/* 📹 VIDEO CALL */}
       <button onClick={startVideoCall}>📹</button>
