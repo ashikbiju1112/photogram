@@ -254,7 +254,7 @@ useEffect(() => {
 
         if (
           call.status === "ringing" &&
-          call.caller_id !== user.id
+          call.caller_id !== user?.id
         ) {
           setIncomingCall(call);
         }
@@ -263,7 +263,7 @@ useEffect(() => {
     .subscribe();
 
   return () => supabase.removeChannel(channel);
-}, [user.id]);
+}, [user?.id]);
 
 
   /* ===================== FETCH CONVERSATIONS ===================== */
