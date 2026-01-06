@@ -63,6 +63,10 @@ const isAdmin = role === "admin";
   const [typingUserId, setTypingUserId] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null);
 const [activeCallId, setActiveCallId] = useState(null);
+
+const localVideoRef = useRef(null);
+const remoteVideoRef = useRef(null);
+
 const pcRef = useRef(null);
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -571,6 +575,37 @@ useEffect(() => {
 
 //
 
+
+
+
+
+
+async function startVoiceCall() {
+  console.log("localVideoRef:", localVideoRef);
+
+  const { data, error } = await supabase
+    .from("calls")
+    .insert({
+      conversation_id: activeConversation,
+      caller_id: user.id,
+      type: "voice",
+      status: "ringing",
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error(error);
+    return;
+  }
+
+  setActiveCallId(data.id); // 🔥 REQUIRED
+  console.log("Voice call started:", data.id);
+}
+
+
+
+
 async function startVideoCall(e) {
   e?.preventDefault();
   e?.stopPropagation();
@@ -627,32 +662,6 @@ async function startVideoCall(e) {
     .update({ offer })
     .eq("id", callId);
 }
-
-
-
-
-async function startVoiceCall() {
-  const { data, error } = await supabase
-    .from("calls")
-    .insert({
-      conversation_id: activeConversation,
-      caller_id: user.id,
-      type: "voice",
-      status: "ringing",
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.error(error);
-    return;
-  }
-
-  setActiveCallId(data.id); // 🔥 REQUIRED
-  console.log("Voice call started:", data.id);
-}
-
-
 
 async function deleteMessage(messageId) {
   await supabase
