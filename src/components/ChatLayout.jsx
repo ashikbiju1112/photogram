@@ -4,7 +4,7 @@ import "./chat.css";
 import UserSearch from "./UserSearch";
 import { useAuth } from "../hooks/useAuth";
 import StatusUploader from "./StatusUploader";
-import List from "react-window/dist/cjs/FixedSizeList";
+import { FixedSizeList as List } from "react-window";
 
 
 import nacl from "tweetnacl";
