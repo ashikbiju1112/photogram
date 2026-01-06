@@ -23,7 +23,11 @@ export async function initWebRTC(localVideoRef, remoteVideoRef) {
   // 5️⃣ Receive remote video
   pc.ontrack = event => {
     remoteVideoRef.current.srcObject = event.streams[0];
-  };
+  };document.getElementById("localVideo").srcObject = stream;
+pc.ontrack = e => {
+  document.getElementById("remoteVideo").srcObject = e.streams[0];
+};
+
 
   // ⛔ signaling (offer/answer) will be added later
   return pc;

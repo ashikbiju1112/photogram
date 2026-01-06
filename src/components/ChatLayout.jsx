@@ -61,6 +61,7 @@ const isAdmin = role === "admin";
   const [onlineUsers, setOnlineUsers] = useState({});
   const [typingUserId, setTypingUserId] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null);
+const [activeCallId, setActiveCallId] = useState(null);
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
