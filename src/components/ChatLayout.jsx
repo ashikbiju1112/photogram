@@ -482,25 +482,28 @@ const encryptedText = encrypt(text, sharedKey);
     }
   }
 async function acceptCall() {
-  if (!incomingCall?.id) {
-    console.warn("acceptCall: incomingCall missing");
+  if (!incomingCall || !incomingCall.id) {
+    console.warn("acceptCall: incomingCall is null");
     return;
   }
 
-  const call = incomingCall;
+  const callId = incomingCall.id;
+  const callType = incomingCall.type;
+  const offer = incomingCall.offer;
+
   setIncomingCall(null);
-  setActiveCallId(call.id);
+  setActiveCallId(callId);
 
   pcRef.current = createPeerConnection({
     localVideoRef,
     remoteVideoRef,
     onIceCandidate: async (candidate) => {
-      await pushIceCandidate("callee", candidate, call.id);
+      await pushIceCandidate("callee", candidate, callId);
     },
   });
 
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: call.type === "video",
+    video: callType === "video",
     audio: true,
   });
 
@@ -508,9 +511,11 @@ async function acceptCall() {
     pcRef.current.addTrack(track, stream)
   );
 
-  await pcRef.current.setRemoteDescription(
-    new RTCSessionDescription(call.offer)
-  );
+  if (offer) {
+    await pcRef.current.setRemoteDescription(
+      new RTCSessionDescription(offer)
+    );
+  }
 
   const answer = await pcRef.current.createAnswer();
   await pcRef.current.setLocalDescription(answer);
@@ -518,9 +523,13 @@ async function acceptCall() {
   await supabase
     .from("calls")
     .update({ status: "accepted", answer })
-    .eq("id", call.id);
+    .eq("id", callId);
 }
 
+
+useEffect(() => {
+  console.log("incomingCall:", incomingCall);
+}, [incomingCall]);
 
 
 useEffect(() => {
@@ -555,7 +564,7 @@ useEffect(() => {
 
 async function rejectCall() {
   if (!incomingCall?.id) {
-    console.warn("rejectCall: incomingCall missing");
+    console.warn("rejectCall: incomingCall is null");
     return;
   }
 
@@ -566,6 +575,7 @@ async function rejectCall() {
 
   setIncomingCall(null);
 }
+
 
 
 
@@ -1089,16 +1099,14 @@ async function deleteMessage(messageId) {
             </div>
           </>
         )}
-      </main>{incomingCall && (
+      </main>{incomingCall?.id && (
   <div className="call-overlay">
-    <h2>
-      Incoming {incomingCall.type} call
-    </h2>
-
+    <h2>Incoming {incomingCall.type} call</h2>
     <button onClick={acceptCall}>Accept</button>
     <button onClick={rejectCall}>Reject</button>
   </div>
 )}
+
 
 
     </div>
