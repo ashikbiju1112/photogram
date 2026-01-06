@@ -49,9 +49,6 @@ const PAGE_SIZE = 30;
 export default function ChatLayout() {
  const { user, loading, isBanned, bannedUntil, role } = useAuth();
 const isAdmin = role === "admin";
-const isGroupAdmin = participants?.some(
-  p => p.user_id === user.id && p.role === "admin"
-);
 
 
   const [messages, setMessages] = useState([]);
@@ -622,7 +619,7 @@ async function deleteMessage(messageId) {
         className="conversation-item"
         onClick={() => openConversation(convo)}
       >
-        <span>{convo.other?.username}</span>
+        <span>{convo.otherUser?.username}</span>
 
         {/* 📌 PIN BUTTON */}
         <button
