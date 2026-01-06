@@ -160,7 +160,7 @@ function cancelPress() {
 
 //pushIceCandidate
 
-  async function pushIceCandidate(role, candidate, callId) {
+  /*async function pushIceCandidate(role, candidate, callId) {
     const { data, error } = await supabase
       .from("calls")
       .select("ice_candidates")
@@ -183,7 +183,36 @@ function cancelPress() {
       .from("calls")
       .update({ ice_candidates: ice })
       .eq("id", callId);
+  }*/
+
+
+      async function pushIceCandidate(role, candidate, callId) {
+  const { data, error } = await supabase
+    .from("calls")
+    .select("ice_candidates")
+    .eq("id", callId)
+    .single();
+
+  if (error) {
+    console.error("ICE read error", error);
+    return;
   }
+
+  const ice = data.ice_candidates ?? {};
+  ice.caller = ice.caller ?? [];
+  ice.callee = ice.callee ?? [];
+
+  // 🔒 Prevent duplicates safely
+  if (!ice[role].some(c => c.candidate === candidate.candidate)) {
+    ice[role].push(candidate);
+  }
+
+  await supabase
+    .from("calls")
+    .update({ ice_candidates: ice })
+    .eq("id", callId);
+}
+
 
 
 
