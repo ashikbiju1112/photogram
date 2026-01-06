@@ -199,8 +199,9 @@ function cancelPress() {
   }
 
   const ice = data.ice_candidates ?? {};
-  ice.caller = ice.caller ?? [];
-  ice.callee = ice.callee ?? [];
+ice.caller = ice.caller ?? [];
+ice.callee = ice.callee ?? [];
+
 
   // 🔒 Prevent duplicates safely
   if (!ice[role].some(c => c.candidate === candidate.candidate)) {
