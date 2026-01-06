@@ -1,9 +1,44 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState ,useMemo} from "react";
 import { supabase } from "../lib/supabase";
 import "./chat.css";
 import UserSearch from "./UserSearch";
 import { useAuth } from "../hooks/useAuth";
 import StatusUploader from "./StatusUploader";
+
+import nacl from "tweetnacl";
+import {
+  encodeUTF8,
+  decodeUTF8,
+  encodeBase64,
+  decodeBase64
+} from "tweetnacl-util";
+
+/* 🔐 ENCRYPT */
+function encrypt(text, key) {
+  const nonce = nacl.randomBytes(24);
+  const encrypted = nacl.secretbox(
+    decodeUTF8(text),
+    nonce,
+    key
+  );
+
+  return encodeBase64(nonce) + ":" + encodeBase64(encrypted);
+}
+
+/* 🔓 DECRYPT */
+function decrypt(payload, key) {
+  if (!payload) return "";
+
+  const [n, e] = payload.split(":");
+  const decrypted = nacl.secretbox.open(
+    decodeBase64(e),
+    decodeBase64(n),
+    key
+  );
+
+  return decrypted ? encodeUTF8(decrypted) : "🔒 Unable to decrypt";
+}
+
 
 
 
@@ -33,6 +68,19 @@ const [replyTo, setReplyTo] = useState(null);
 
   const [selectedMessage, setSelectedMessage] = useState(null);
 let pressTimer;
+
+
+
+/* ===================== 🔐 SHARED ENCRYPTION KEY ===================== */
+const sharedKey = useMemo(() => {
+  if (!activeConversation) return null;
+
+  return nacl
+    .hash(new TextEncoder().encode(activeConversation))
+    .slice(0, 32);
+}, [activeConversation]);
+
+
 
 
   /* ===================== PRESENCE ===================== */
@@ -106,15 +154,7 @@ useEffect(() => {
 
 
 
-function onPress(msg) {
-  pressTimer = setTimeout(() => {
-    setSelectedMessage(msg);
-  }, 400);
-}
 
-function cancelPress() {
-  clearTimeout(pressTimer);
-}
 
 
 /* ===================== GROUP CREATION ===================== */
@@ -149,7 +189,7 @@ async function pinChat(conversationId) {
  /* ===================== SEARCH MESSAGES ===================== */
 
 
- async function searchMessages(q) {
+ /*async function searchMessages(q) {
   if (!q) return loadMessages(true);
 
   const { data } = await supabase
@@ -159,7 +199,13 @@ async function pinChat(conversationId) {
     .ilike("content", `%${q}%`);
 
   setMessages(data || []);
+}*/
+
+
+async function searchMessages() {
+  alert("🔒 Search not available for encrypted chats");
 }
+
 
 
   /* ===================== FETCH CONVERSATIONS ===================== */
@@ -337,7 +383,12 @@ useEffect(() => {
     if (!text.trim() || !activeConversation || !activeUser) return;
 
     const messageId = crypto.randomUUID();
-    const content = text;
+    if (!sharedKey) return;
+
+const encryptedText = encrypt(text, sharedKey);
+
+    const content = encryptedText;
+    
 
     setMessages(prev => [
       ...prev,
@@ -522,6 +573,10 @@ async function deleteMessage(messageId) {
       </div>
     );
 
+
+
+
+
   /* ===================== UI ===================== */
 
   return (
@@ -565,7 +620,8 @@ async function deleteMessage(messageId) {
         </button>
       </div>
     ))}
-  </div>
+  </div><p>{decryptedText}</p>
+
       </aside>
 
 
@@ -630,7 +686,7 @@ async function deleteMessage(messageId) {
           onTouchEnd={cancelPress}
           style={{ display: "flex", alignItems: "center", gap: 6 }}
         >
-          <span>{msg.content}</span>
+          <span>{sharedKey ? decrypt(msg.content, sharedKey) : "🔒"}</span>
 
           {/* 🗑 ADMIN DELETE */}
           {isAdmin && (

@@ -35,9 +35,11 @@ export default function AdminPanel() {
     action: "BAN_USER",
     target_id: u.id,
   });
+  
 }
 
   }
+  
 
   return (
     <div style={{ padding: 20 }}>
