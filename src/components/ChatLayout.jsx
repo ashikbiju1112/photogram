@@ -154,25 +154,7 @@ function cancelPress() {
 
 
 //
-useEffect(() => {
-  if (!user?.id) return;
 
-  const callChannel = supabase
-    .channel("calls")
-    .on(
-      "postgres_changes",
-      { event: "INSERT", table: "calls" },
-      payload => {
-        if (payload.new.caller_id !== user.id) {
-          setIncomingCall(payload.new);
-
-        }
-      }
-    )
-    .subscribe();
-
-  return () => supabase.removeChannel(callChannel);
-}, [user?.id]);
 
 
 
@@ -256,6 +238,8 @@ async function searchMessages() {
 
 
 useEffect(() => {
+  if (!user?.id) return;
+
   const channel = supabase
     .channel("incoming-calls")
     .on(
@@ -265,7 +249,7 @@ useEffect(() => {
         schema: "public",
         table: "calls",
       },
-      (payload) => {
+      payload => {
         const call = payload.new;
 
         if (
@@ -280,6 +264,7 @@ useEffect(() => {
 
   return () => supabase.removeChannel(channel);
 }, [user.id]);
+
 
   /* ===================== FETCH CONVERSATIONS ===================== */
 
@@ -497,11 +482,15 @@ const encryptedText = encrypt(text, sharedKey);
     }
   }
 async function acceptCall() {
+  if (!incomingCall?.id) {
+    console.warn("acceptCall: incomingCall missing");
+    return;
+  }
+
   const call = incomingCall;
   setIncomingCall(null);
   setActiveCallId(call.id);
 
-  // 1️⃣ Create peer connection
   pcRef.current = createPeerConnection({
     localVideoRef,
     remoteVideoRef,
@@ -510,7 +499,6 @@ async function acceptCall() {
     },
   });
 
-  // 2️⃣ Media
   const stream = await navigator.mediaDevices.getUserMedia({
     video: call.type === "video",
     audio: true,
@@ -520,24 +508,19 @@ async function acceptCall() {
     pcRef.current.addTrack(track, stream)
   );
 
-  // 3️⃣ Set offer
   await pcRef.current.setRemoteDescription(
     new RTCSessionDescription(call.offer)
   );
 
-  // 4️⃣ Create answer
   const answer = await pcRef.current.createAnswer();
   await pcRef.current.setLocalDescription(answer);
 
-  // 5️⃣ Save answer
   await supabase
     .from("calls")
-    .update({
-      status: "accepted",
-      answer,
-    })
+    .update({ status: "accepted", answer })
     .eq("id", call.id);
 }
+
 
 
 useEffect(() => {
@@ -571,6 +554,11 @@ useEffect(() => {
 
 
 async function rejectCall() {
+  if (!incomingCall?.id) {
+    console.warn("rejectCall: incomingCall missing");
+    return;
+  }
+
   await supabase
     .from("calls")
     .update({ status: "rejected" })
@@ -578,6 +566,7 @@ async function rejectCall() {
 
   setIncomingCall(null);
 }
+
 
 
 
@@ -673,6 +662,7 @@ useEffect(() => {
 
 
 //
+
 
 
 
