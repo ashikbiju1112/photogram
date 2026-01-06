@@ -2,12 +2,9 @@
 
 import { useRef } from "react";
 
-export default function VideoCall() {
-  const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
-
+export default function VideoCall({ localVideoRef, remoteVideoRef }) {
   return (
-    <div className="video-call">
+    <div className="call-overlay">
       <video
         ref={localVideoRef}
         autoPlay
@@ -25,3 +22,4 @@ export default function VideoCall() {
     </div>
   );
 }
+
