@@ -83,6 +83,9 @@ const sharedKey = useMemo(() => {
     .slice(0, 32);
 }, [activeConversation]);
 
+useEffect(() => {
+  console.log("sharedKey (ChatLayout):", sharedKey);
+}, [sharedKey]);
 
  /*====================Change Role====================*/
  async function changeRole(userId, role) {
