@@ -5,6 +5,7 @@ import UserSearch from "./UserSearch";
 import { useAuth } from "../hooks/useAuth";
 import StatusUploader from "./StatusUploader";
 import { FixedSizeList as List } from "react-window";
+import { createPeerConnection } from "../lib/webrtc";
 
 
 import nacl from "tweetnacl";
@@ -436,13 +437,32 @@ const encryptedText = encrypt(text, sharedKey);
     }
   }
 async function acceptCall() {
+  pc = createPeerConnection(async candidate => {
+    await supabase.rpc("add_ice", {
+      call_id: incomingCall.id,
+      candidate,
+    });
+  });
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: true,
+    audio: true,
+  });
+
+  stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+  await pc.setRemoteDescription(incomingCall.offer);
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+
   await supabase
     .from("calls")
-    .update({ status: "accepted" })
+    .update({ answer, status: "accepted" })
     .eq("id", incomingCall.id);
 
   setIncomingCall(null);
 }
+
 
 async function rejectCall() {
   await supabase
@@ -556,6 +576,37 @@ async function startVideoCall() {
     status: "ringing",
   });
 }
+
+
+let pc;
+
+async function startVideoCall() {
+  pc = createPeerConnection(async candidate => {
+    await supabase.rpc("add_ice", {
+      call_id: activeCallId,
+      candidate,
+    });
+  });
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: true,
+    audio: true,
+  });
+
+  stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  await supabase.from("calls").insert({
+    conversation_id: activeConversation,
+    caller_id: user.id,
+    type: "video",
+    status: "ringing",
+    offer,
+  });
+}
+
 
 async function startVoiceCall() {
   await supabase.from("calls").insert({
@@ -795,7 +846,9 @@ async function deleteMessage(messageId) {
           </>
         )}
       </main>{incomingCall && (
-  <div className="call-overlay">
+  <div className="call-overlay"><video id="localVideo" autoPlay muted />
+<video id="remoteVideo" autoPlay />
+
     <h3>📞 Incoming {incomingCall.type} call</h3>
     <button onClick={acceptCall}>✅ Accept</button>
     <button onClick={rejectCall}>❌ Reject</button>
