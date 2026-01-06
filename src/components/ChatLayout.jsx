@@ -846,8 +846,9 @@ async function deleteMessage(messageId) {
           </>
         )}
       </main>{incomingCall && (
-  <div className="call-overlay"><video id="localVideo" autoPlay muted />
-<video id="remoteVideo" autoPlay />
+  <div className="call-overlay">
+
+
 
     <h3>📞 Incoming {incomingCall.type} call</h3>
     <button onClick={acceptCall}>✅ Accept</button>
