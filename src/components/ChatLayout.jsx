@@ -49,6 +49,9 @@ const PAGE_SIZE = 30;
 export default function ChatLayout() {
  const { user, loading, isBanned, bannedUntil, role } = useAuth();
 const isAdmin = role === "admin";
+const isGroupAdmin = participants?.some(
+  p => p.user_id === user.id && p.role === "admin"
+);
 
 
   const [messages, setMessages] = useState([]);
@@ -59,8 +62,9 @@ const isAdmin = role === "admin";
   const [conversations, setConversations] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState({});
   const [typingUserId, setTypingUserId] = useState(null);
+  const [incomingCall, setIncomingCall] = useState(null);
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
-const [page, setPage] = useState(0);
 
   const messagesEndRef = useRef(null);
   const typingTimeout = useRef(null);
@@ -70,7 +74,6 @@ const [replyTo, setReplyTo] = useState(null);
 
   const [selectedMessage, setSelectedMessage] = useState(null);
 let pressTimer;
-const [incomingCall, setIncomingCall] = useState(null);
 
 
 
@@ -84,17 +87,21 @@ const sharedKey = useMemo(() => {
 }, [activeConversation]);
 
 
+ /*====================Change Role====================*/
+ async function changeRole(userId, role) {
+  await supabase
+    .from("participants")
+    .update({ role })
+    .eq("conversation_id", activeConversation)
+    .eq("user_id", userId);
+}
+
+
 
 
   /* ===================== PRESENCE ===================== */
 
-async function react(messageId, emoji) {
-  await supabase.from("message_reactions").upsert({
-    message_id: messageId,
-    user_id: user.id,
-    emoji,
-  });
-}
+
 
 
 function onPress(msg) {
@@ -156,23 +163,7 @@ useEffect(() => {
 }, [user?.id]);
 
 
-async function acceptCall() {
-  await supabase
-    .from("calls")
-    .update({ status: "accepted" })
-    .eq("id", incomingCall.id);
 
-  setIncomingCall(null);
-}
-
-async function rejectCall() {
-  await supabase
-    .from("calls")
-    .update({ status: "rejected" })
-    .eq("id", incomingCall.id);
-
-  setIncomingCall(null);
-}
 
 
 
@@ -404,6 +395,8 @@ useEffect(() => {
     if (!text.trim() || !activeConversation || !activeUser) return;
 
     const messageId = crypto.randomUUID();
+    const isSpam = /(http|https|www\.)/i.test(text);
+
     if (!sharedKey) return;
 
 const encryptedText = encrypt(text, sharedKey);
@@ -426,12 +419,13 @@ const encryptedText = encrypt(text, sharedKey);
     setText("");
 
     const { error } = await supabase.from("messages").insert({
-      id: messageId,
-      conversation_id: activeConversation,
-      sender_id: user.id,
-      receiver_id: activeUser.id,
-      content,
-    });
+  id: messageId,
+  conversation_id: activeConversation,
+  sender_id: user.id,
+  receiver_id: activeUser.id,
+  content: encryptedText,
+  flagged: isSpam,
+});
 
     if (error) {
       setMessages(prev =>
@@ -441,6 +435,23 @@ const encryptedText = encrypt(text, sharedKey);
       );
     }
   }
+async function acceptCall() {
+  await supabase
+    .from("calls")
+    .update({ status: "accepted" })
+    .eq("id", incomingCall.id);
+
+  setIncomingCall(null);
+}
+
+async function rejectCall() {
+  await supabase
+    .from("calls")
+    .update({ status: "rejected" })
+    .eq("id", incomingCall.id);
+
+  setIncomingCall(null);
+}
 
 
 
@@ -533,13 +544,6 @@ useEffect(() => {
 
 
    /* ====================Reaction================== */
-async function react(messageId, emoji) {
-  await supabase.from("message_reactions").upsert({
-    message_id: messageId,
-    user_id: user.id,
-    emoji,
-  });
-}
 
 
 //
@@ -577,9 +581,7 @@ async function deleteMessage(messageId) {
 
   /* ===================== AUTOSCROLL ===================== */
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+
 
   /* ===================== GUARDS ===================== */
 
@@ -641,7 +643,7 @@ async function deleteMessage(messageId) {
         </button>
       </div>
     ))}
-  </div><p>{decryptedText}</p>
+  </div>
 
       </aside>
 
@@ -686,7 +688,14 @@ async function deleteMessage(messageId) {
             <div
               className="messages"
               onScroll={e => {
-  if (e.target.scrollTop === 0 && hasMore) {<List
+  if (e.target.scrollTop === 0 && hasMore) {
+
+    loadMessages(false);
+  }
+}}
+
+            >
+              <List
   height={window.innerHeight - 220}
   itemCount={messages.length}
   itemSize={90}   // ⬅ slightly larger for reactions/time
@@ -710,7 +719,14 @@ async function deleteMessage(messageId) {
               style={{ display: "flex", alignItems: "center", gap: 6 }}
             >
               <span>
-                {sharedKey ? decrypt(msg.content, sharedKey) : "🔒"}
+                {(() => {
+  try {
+    return decrypt(msg.content, sharedKey);
+  } catch {
+    return "🔒 Encrypted message";
+  }
+})()}
+
               </span>
 
               {/* 🗑 ADMIN DELETE */}
@@ -758,92 +774,13 @@ async function deleteMessage(messageId) {
             })}
           </div>
 
-        </div>{incomingCall && (
-  <div className="call-overlay">
-    <h3>📞 Incoming {incomingCall.type} call</h3>
-    <button onClick={acceptCall}>✅ Accept</button>
-    <button onClick={rejectCall}>❌ Reject</button>
-  </div>
-)}
+        </div>
 
       </div>
     );
   }}
 </List>
-
-    loadMessages(false);
-  }
-}}
-
-            >
-              {messages.map(msg => {
-  const isMe = msg.sender_id === user.id;
-
-  return (
-    <div key={msg.id} className={`msg ${isMe ? "right" : "left"}`}>
-
-      {/* 💬 MESSAGE BUBBLE */}
-      <div onDoubleClick={() => react(msg.id, "❤️")}>
-        <div
-          onMouseDown={() => onPress(msg)}
-          onMouseUp={cancelPress}
-          onTouchStart={() => onPress(msg)}
-          onTouchEnd={cancelPress}
-          style={{ display: "flex", alignItems: "center", gap: 6 }}
-        >
-          <span>{sharedKey ? decrypt(msg.content, sharedKey) : "🔒"}</span>
-
-          {/* 🗑 ADMIN DELETE */}
-          {isAdmin && (
-            <button
-              onClick={() => deleteMessage(msg.id)}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                fontSize: 12,
-                color: "red",
-              }}
-              title="Delete message"
-            >
-              🗑
-            </button>
-          )}
-        </div>
-        {reactions[msg.id] && (
-  <div style={{ fontSize: 12, marginTop: 4 }}>
-    {Object.entries(reactions[msg.id]).map(([emoji, count]) => (
-      <span key={emoji} style={{ marginRight: 6 }}>
-        {emoji} {count}
-      </span>
-    ))}
-  </div>)}
-      </div>
-
-                    <div className="time">
-                      {isMe && (
-    msg.read_at
-      ? "✔✔ "
-      : msg.delivered_at
-      ? "✔ "
-      : "⏳ "
-  )}
-
-  {new Date(msg.created_at).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  })}
-                    </div>{incomingCall && (
-  <div className="call-overlay">
-    <h3>📞 Incoming {incomingCall.type} call</h3>
-    <button onClick={acceptCall}>✅ Accept</button>
-    <button onClick={rejectCall}>❌ Reject</button>
-  </div>
-)}
-
-                  </div>
-                );
-              })}
+              
               <div ref={messagesEndRef} />
             </div>
 
@@ -857,7 +794,14 @@ async function deleteMessage(messageId) {
             </div>
           </>
         )}
-      </main>
+      </main>{incomingCall && (
+  <div className="call-overlay">
+    <h3>📞 Incoming {incomingCall.type} call</h3>
+    <button onClick={acceptCall}>✅ Accept</button>
+    <button onClick={rejectCall}>❌ Reject</button>
+  </div>
+)}
+
     </div>
   );
 }

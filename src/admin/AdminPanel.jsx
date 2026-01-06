@@ -37,6 +37,11 @@ export default function AdminPanel() {
   });
   
 }
+const { data: flaggedMessages } = await supabase
+  .from("messages")
+  .select("*")
+  .eq("flagged", true);
+
 
   }
   
