@@ -611,10 +611,16 @@ async function rejectCall() {
   /* ===================== HELPERS ===================== */
 
   function openConversation(convo) {
-    setActiveConversation(convo.id);
-    setActiveUser(convo.otherUser);
-    setSidebarOpen(false);
+  if (!convo?.id || !convo?.otherUser?.id) {
+    console.warn("Invalid conversation", convo);
+    return;
   }
+
+  setActiveConversation(convo.id);
+  setActiveUser(convo.otherUser);
+  setSidebarOpen(false);
+}
+
 
   async function openOrCreateConversation(otherUser) {
   if (!user?.id || !otherUser?.id) return null;
@@ -1008,6 +1014,8 @@ async function deleteMessage(messageId) {
 >
   {({ index, style }) => {
     const msg = messages[index];
+if (!msg) return null;
+
     const isMe = msg.sender_id === user.id;
 
     return (
@@ -1026,6 +1034,7 @@ async function deleteMessage(messageId) {
               <span>
                 {(() => {
   try {
+    if (!sharedKey) return "🔒 Encrypted message";
     return decrypt(msg.content, sharedKey);
   } catch {
     return "🔒 Encrypted message";
