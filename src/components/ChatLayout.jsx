@@ -252,10 +252,9 @@ useEffect(() => {
       payload => {
         const call = payload.new;
 
-        if (
-          call.status === "ringing" &&
-          call.caller_id !== user?.id
-        ) {
+        // 🔥 critical guard
+        if (call.caller_id !== user.id) {
+          console.log("📞 Incoming call:", call);
           setIncomingCall(call);
         }
       }
@@ -706,15 +705,21 @@ useEffect(() => {
               ? "callee"
               : "caller";
 
-          for (const candidate of ice[remoteRole] || []) {
-            try {
-              await pcRef.current.addIceCandidate(
-                new RTCIceCandidate(candidate)
-              );
-            } catch (e) {
-              console.warn("ICE add failed", e);
-            }
-          }
+          for (const candidate of ice?.[remoteRole] || []) {
+  try {
+    if (!pcRef.current) return;
+    if (!pcRef.current.remoteDescription) {
+      console.warn("ICE skipped: remoteDescription not ready");
+      return;
+    }
+    await pcRef.current.addIceCandidate(
+      new RTCIceCandidate(candidate)
+    );
+  } catch (e) {
+    console.warn("ICE add failed", e);
+  }
+}
+
         }
       )
       .subscribe();
@@ -758,8 +763,6 @@ useEffect(() => {
 
 
 async function startVoiceCall() {
-  console.log("localVideoRef:", localVideoRef);
-
   const { data, error } = await supabase
     .from("calls")
     .insert({
@@ -771,14 +774,35 @@ async function startVoiceCall() {
     .select()
     .single();
 
-  if (error) {
-    console.error(error);
-    return;
-  }
+  if (error) return;
 
-  setActiveCallId(data.id); // 🔥 REQUIRED
-  console.log("Voice call started:", data.id);
+  setActiveCallId(data.id);
+
+  pcRef.current = createPeerConnection({
+    localVideoRef,
+    remoteVideoRef,
+    onIceCandidate: candidate =>
+      pushIceCandidate("caller", candidate, data.id),
+  });
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: true,
+    video: false,
+  });
+
+  stream.getTracks().forEach(track =>
+    pcRef.current.addTrack(track, stream)
+  );
+
+  const offer = await pcRef.current.createOffer();
+  await pcRef.current.setLocalDescription(offer);
+
+  await supabase
+    .from("calls")
+    .update({ offer })
+    .eq("id", data.id);
 }
+
 
 
 
