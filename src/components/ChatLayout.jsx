@@ -722,7 +722,7 @@ useEffect(() => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [activeCallId, user.id]);
+  }, [activeCallId, user?.id]);
 
 
 
