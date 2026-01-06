@@ -4,6 +4,8 @@ import "./chat.css";
 import UserSearch from "./UserSearch";
 import { useAuth } from "../hooks/useAuth";
 import StatusUploader from "./StatusUploader";
+import { FixedSizeList as List } from "react-window";
+
 
 import nacl from "tweetnacl";
 import {
@@ -68,6 +70,7 @@ const [replyTo, setReplyTo] = useState(null);
 
   const [selectedMessage, setSelectedMessage] = useState(null);
 let pressTimer;
+const [incomingCall, setIncomingCall] = useState(null);
 
 
 
@@ -142,7 +145,8 @@ useEffect(() => {
       { event: "INSERT", table: "calls" },
       payload => {
         if (payload.new.caller_id !== user.id) {
-          alert("📞 Incoming call");
+          setIncomingCall(payload.new);
+
         }
       }
     )
@@ -152,6 +156,23 @@ useEffect(() => {
 }, [user?.id]);
 
 
+async function acceptCall() {
+  await supabase
+    .from("calls")
+    .update({ status: "accepted" })
+    .eq("id", incomingCall.id);
+
+  setIncomingCall(null);
+}
+
+async function rejectCall() {
+  await supabase
+    .from("calls")
+    .update({ status: "rejected" })
+    .eq("id", incomingCall.id);
+
+  setIncomingCall(null);
+}
 
 
 
@@ -665,7 +686,91 @@ async function deleteMessage(messageId) {
             <div
               className="messages"
               onScroll={e => {
-  if (e.target.scrollTop === 0 && hasMore) {
+  if (e.target.scrollTop === 0 && hasMore) {<List
+  height={window.innerHeight - 220}
+  itemCount={messages.length}
+  itemSize={90}   // ⬅ slightly larger for reactions/time
+  width="100%"
+>
+  {({ index, style }) => {
+    const msg = messages[index];
+    const isMe = msg.sender_id === user.id;
+
+    return (
+      <div style={style}>
+        <div className={`msg ${isMe ? "right" : "left"}`}>
+
+          {/* 💬 MESSAGE BUBBLE */}
+          <div onDoubleClick={() => react(msg.id, "❤️")}>
+            <div
+              onMouseDown={() => onPress(msg)}
+              onMouseUp={cancelPress}
+              onTouchStart={() => onPress(msg)}
+              onTouchEnd={cancelPress}
+              style={{ display: "flex", alignItems: "center", gap: 6 }}
+            >
+              <span>
+                {sharedKey ? decrypt(msg.content, sharedKey) : "🔒"}
+              </span>
+
+              {/* 🗑 ADMIN DELETE */}
+              {isAdmin && (
+                <button
+                  onClick={() => deleteMessage(msg.id)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    color: "red",
+                  }}
+                  title="Delete message"
+                >
+                  🗑
+                </button>
+              )}
+            </div>
+
+            {/* ❤️ REACTIONS */}
+            {reactions[msg.id] && (
+              <div style={{ fontSize: 12, marginTop: 4 }}>
+                {Object.entries(reactions[msg.id]).map(([emoji, count]) => (
+                  <span key={emoji} style={{ marginRight: 6 }}>
+                    {emoji} {count}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ⏱ TIME / DELIVERY */}
+          <div className="time">
+            {isMe && (
+              msg.read_at
+                ? "✔✔ "
+                : msg.delivered_at
+                ? "✔ "
+                : "⏳ "
+            )}
+            {new Date(msg.created_at).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </div>
+
+        </div>{incomingCall && (
+  <div className="call-overlay">
+    <h3>📞 Incoming {incomingCall.type} call</h3>
+    <button onClick={acceptCall}>✅ Accept</button>
+    <button onClick={rejectCall}>❌ Reject</button>
+  </div>
+)}
+
+      </div>
+    );
+  }}
+</List>
+
     loadMessages(false);
   }
 }}
@@ -728,7 +833,14 @@ async function deleteMessage(messageId) {
     hour: "2-digit",
     minute: "2-digit",
   })}
-                    </div>
+                    </div>{incomingCall && (
+  <div className="call-overlay">
+    <h3>📞 Incoming {incomingCall.type} call</h3>
+    <button onClick={acceptCall}>✅ Accept</button>
+    <button onClick={rejectCall}>❌ Reject</button>
+  </div>
+)}
+
                   </div>
                 );
               })}
