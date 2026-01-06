@@ -5,7 +5,8 @@ import UserSearch from "./UserSearch";
 import { useAuth } from "../hooks/useAuth";
 import StatusUploader from "./StatusUploader";
 import { FixedSizeList as List } from "react-window";
-import { createPeerConnection } from "../lib/webrtc";
+import { createPeerConnection, getLocalStream } from "../lib/webrtc";
+
 
 
 import nacl from "tweetnacl";
@@ -62,6 +63,7 @@ const isAdmin = role === "admin";
   const [typingUserId, setTypingUserId] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null);
 const [activeCallId, setActiveCallId] = useState(null);
+const pcRef = useRef(null);
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -570,53 +572,77 @@ useEffect(() => {
 //
 
 async function startVideoCall() {
-  await supabase.from("calls").insert({
-    conversation_id: activeConversation,
-    caller_id: user.id,
-    type: "video",
-    status: "ringing",
-  });
-}
+  // 1️⃣ Create call row FIRST
+  const { data, error } = await supabase
+    .from("calls")
+    .insert({
+      conversation_id: activeConversation,
+      caller_id: user.id,
+      type: "video",
+      status: "ringing",
+    })
+    .select()
+    .single();
 
+  if (error) {
+    console.error("Failed to create call", error);
+    return;
+  }
 
-let pc;
+  const callId = data.id;
+  setActiveCallId(callId);
 
-async function startVideoCall() {
-  pc = createPeerConnection(async candidate => {
+  // 2️⃣ Create PeerConnection AFTER call exists
+  pcRef.current = createPeerConnection(async candidate => {
     await supabase.rpc("add_ice", {
-      call_id: activeCallId,
+      call_id: callId, // ✅ NOW SAFE
       candidate,
     });
   });
 
+  // 3️⃣ Get media
   const stream = await navigator.mediaDevices.getUserMedia({
     video: true,
     audio: true,
   });
 
-  stream.getTracks().forEach(track => pc.addTrack(track, stream));
+  stream.getTracks().forEach(track =>
+    pcRef.current.addTrack(track, stream)
+  );
 
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
+  // 4️⃣ Create offer
+  const offer = await pcRef.current.createOffer();
+  await pcRef.current.setLocalDescription(offer);
 
-  await supabase.from("calls").insert({
-    conversation_id: activeConversation,
-    caller_id: user.id,
-    type: "video",
-    status: "ringing",
-    offer,
-  });
+  // 5️⃣ Save offer
+  await supabase
+    .from("calls")
+    .update({ offer })
+    .eq("id", callId);
 }
+
 
 
 async function startVoiceCall() {
-  await supabase.from("calls").insert({
-    conversation_id: activeConversation,
-    caller_id: user.id,
-    type: "voice",
-    status: "ringing",
-  });
+  const { data, error } = await supabase
+    .from("calls")
+    .insert({
+      conversation_id: activeConversation,
+      caller_id: user.id,
+      type: "voice",
+      status: "ringing",
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error(error);
+    return;
+  }
+
+  setActiveCallId(data.id);
 }
+
 
 async function deleteMessage(messageId) {
   await supabase
