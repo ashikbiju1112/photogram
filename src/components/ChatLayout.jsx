@@ -268,6 +268,7 @@ async function searchMessages() {
 
 
 useEffect(() => {
+  console.log("🟢 realtime calls channel active"); // 👈 HERE
   if (!user?.id) return;
 
   const channel = supabase
@@ -280,6 +281,7 @@ useEffect(() => {
         table: "calls",
       },
       payload => {
+        console.log("📞 RAW CALL INSERT:", payload.new); // 👈 HERE
         const call = payload.new;
 
         // 🔥 critical guard
