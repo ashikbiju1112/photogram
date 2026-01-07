@@ -880,7 +880,7 @@ async function startVideoCall(e) {
   stream.getTracks().forEach(track =>
     pcRef.current.addTrack(track, stream)
   );
-
+console.log("pcRef.current created for callId:", callId);
   // 4️⃣ Offer
   const offer = await pcRef.current.createOffer();
   await pcRef.current.setLocalDescription(offer);
