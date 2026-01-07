@@ -865,12 +865,10 @@ async function startVideoCall(e) {
   pcRef.current = createPeerConnection({
     localVideoRef,
     remoteVideoRef,
-    onIceCandidate: async (candidate) => {
-      await supabase.rpc("add_ice", {
-        call_id: callId,
-        candidate,
-      });
-    },
+    onIceCandidate: candidate => {
+  pushIceCandidate("caller", candidate, callId);
+},
+
   });
 
   // 3️⃣ Media
