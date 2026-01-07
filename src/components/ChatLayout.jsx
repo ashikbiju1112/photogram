@@ -283,10 +283,16 @@ useEffect(() => {
         const call = payload.new;
 
         // 🔥 critical guard
-        if (call.caller_id !== user.id) {
-          console.log("📞 Incoming call:", call);
-          setIncomingCall(call);
-        }
+        if (
+  call.status === "ringing" &&
+  call.participants?.includes(user.id) &&
+  call.caller_id !== user.id
+) {
+  console.log("📞 Incoming call:", call);
+  setIncomingCall(call);
+}
+
+
       }
     )
     .subscribe();
@@ -796,11 +802,13 @@ async function startVoiceCall() {
   const { data, error } = await supabase
     .from("calls")
     .insert({
-      conversation_id: activeConversation,
-      caller_id: user.id,
-      type: "voice",
-      status: "ringing",
-    })
+  conversation_id: activeConversation,
+  caller_id: user.id,
+  type: "voice",
+  status: "ringing",
+  participants: [user.id, activeUser.id], // 🔥 IMPORTANT
+})
+
     .select()
     .single();
 
@@ -845,11 +853,13 @@ async function startVideoCall(e) {
   const { data, error } = await supabase
     .from("calls")
     .insert({
-      conversation_id: activeConversation,
-      caller_id: user.id,
-      type: "video",
-      status: "ringing",
-    })
+  conversation_id: activeConversation,
+  caller_id: user.id,
+  type: "video",
+  status: "ringing",
+  participants: [user.id, activeUser.id], // 🔥 IMPORTANT
+})
+
     .select()
     .single();
 
