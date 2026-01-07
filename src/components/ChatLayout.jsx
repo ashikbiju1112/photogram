@@ -1171,7 +1171,12 @@ if (!msg) return null;
           </>
         )}
       </main>{incomingCall?.id && (
-  <div className="call-overlay">
+  <div style={{
+      position: "fixed",
+      inset: 0,
+      background: "red",
+      zIndex: 9999,
+    }}>
     <h2>Incoming {incomingCall.type} call</h2>
     <button onClick={acceptCall}>Accept</button>
     <button onClick={rejectCall}>Reject</button>
