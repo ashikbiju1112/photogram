@@ -1174,8 +1174,13 @@ if (!msg) return null;
   <div style={{
       position: "fixed",
       inset: 0,
-      background: "red",
-      zIndex: 9999,
+      background: "rgba(255,0,0,0.8)",
+      zIndex: 99999,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: "#fff",
+      fontSize: 24,
     }}>
     <h2>Incoming {incomingCall.type} call</h2>
     <button onClick={acceptCall}>Accept</button>
