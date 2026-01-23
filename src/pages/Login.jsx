@@ -26,7 +26,7 @@ export default function Login() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1 className="app-title">📸 Photogram</h1>
+        <h1 className="app-title"><span>📸</span> Photogram</h1>
         <p className="app-subtitle">
           Chat privately. Share moments. Call instantly.
         </p>
