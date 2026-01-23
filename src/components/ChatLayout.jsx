@@ -329,21 +329,26 @@ useEffect(() => {
 
     const cleaned = data
       .map(row => {
-        const convo = row.conversations;
-        const otherUser = convo.participants
-          .map(p => p.profiles)
-          .find(p => p.id !== user.id);
+  const convo = row.conversations;
+  const otherUser = convo.participants
+    .map(p => p.profiles)
+    .find(p => p.id !== user.id);
 
-        const lastMessage = convo.messages
-          ?.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+  const unreadCount = convo.messages?.filter(
+    m => !m.read_at && m.sender_id !== user.id
+  ).length || 0;
 
-        return {
-          id: convo.id,
-          otherUser,
-          lastMessage,
-          lastMessageTime: lastMessage?.created_at,
-        };
-      })
+  const lastMessage = convo.messages
+    ?.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+
+  return {
+    id: convo.id,
+    otherUser,
+    lastMessage,
+    lastMessageTime: lastMessage?.created_at,
+    unreadCount, // ✅ ADD THIS
+  };
+})
       .filter(Boolean)
       .sort(
         (a, b) =>
@@ -979,34 +984,51 @@ async function deleteMessage(messageId) {
     setActiveUser(otherUser);
     setSidebarOpen(false);
   }}
-/>
+/><button
+  className="theme-toggle"
+  onClick={() => {
+    const themes = ["dark", "blue", "purple"];
+    const current = document.body.dataset.theme || "dark";
+    const next = themes[(themes.indexOf(current) + 1) % themes.length];
+    document.body.dataset.theme = next;
+  }}
+>
+  🎨
+</button>
+
 <div className="conversation-list">
     {conversations.map(convo => (
       <div
-        key={convo.id}
-        className="conversation-item"
-        onClick={() => openConversation(convo)}
-      >
-        <span>{convo.otherUser?.username}</span>
+  key={convo.id}
+  className="conversation-item"
+  onClick={() => openConversation(convo)}
+>
+  {/* LEFT: username */}
+  <span>{convo.otherUser?.username}</span>
 
-        {/* 📌 PIN BUTTON */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation(); // IMPORTANT
-            pinChat(convo.id);
-          }}
-          title="Pin chat"
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            fontSize: 16,
-            marginLeft: "auto",
-          }}
-        >
-          📌
-        </button>
-      </div>
+  {/* 🔔 UNREAD BADGE */}
+  {convo.unreadCount > 0 && (
+    <span className="unread-badge">
+      {convo.unreadCount}
+    </span>
+  )}
+
+  {/* 📌 PIN BUTTON */}
+  <button
+    onClick={(e) => {
+      e.stopPropagation();
+      pinChat(convo.id);
+    }}
+    style={{
+      background: "none",
+      border: "none",
+      cursor: "pointer",
+    }}
+  >
+    📌
+  </button>
+</div>
+
     ))}
   </div>
 
@@ -1023,6 +1045,16 @@ async function deleteMessage(messageId) {
           <>
           {/* 🔝 CHAT HEADER */}
   <div className="chat-header">
+    <button
+  className="mobile-back"
+  onClick={() => {
+    setActiveConversation(null);
+    setActiveUser(null);
+  }}
+>
+  ←
+</button>
+
     <div className="chat-header-user">
       <img
         src={activeUser?.avatar_url || "/avatar.png"}
@@ -1162,7 +1194,11 @@ if (!msg) return null;
               <div ref={messagesEndRef} />
             </div>
 
-            {typingUserId && <div>typing…</div>}
+            {typingUserId && <div className="typing-indicator">
+    <span></span>
+    <span></span>
+    <span></span>
+  </div>}
 
             <div className="chat-input">
               <input value={text} onChange={handleTyping} />
