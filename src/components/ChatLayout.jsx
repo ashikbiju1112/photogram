@@ -312,6 +312,7 @@ useEffect(() => {
         conversation_id,
         conversations (
           id,
+          pinned,
           participants (
             profiles (id, username, avatar_url)
           ),
@@ -347,6 +348,7 @@ useEffect(() => {
     lastMessage,
     lastMessageTime: lastMessage?.created_at,
     unreadCount, // ✅ ADD THIS
+    pinned: convo.pinned ?? false,
   };
 })
       .filter(Boolean)
@@ -1013,20 +1015,16 @@ async function deleteMessage(messageId) {
     </span>
   )}
 
-  {/* 📌 PIN BUTTON */}
-  <button
-    onClick={(e) => {
-      e.stopPropagation();
-      pinChat(convo.id);
-    }}
-    style={{
-      background: "none",
-      border: "none",
-      cursor: "pointer",
-    }}
-  >
-    📌
-  </button>
+  {/* 📌 SHOW ONLY IF PINNED */}
+
+  {convo.pinned && (
+    <span
+      title="Pinned chat"
+      style={{ fontSize: 14, marginLeft: "auto" }}
+    >
+      📌
+    </span>
+  )}
 </div>
 
     ))}
