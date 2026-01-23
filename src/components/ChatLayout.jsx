@@ -975,7 +975,7 @@ async function deleteMessage(messageId) {
   return (
     <div className="chat-app">
       <aside className={`sidebar ${sidebarOpen ? "open" : "hidden"}`}>
-        <strong>Photogram</strong>
+        <strong>Photogram<span style={{ fontSize: 14, opacity: 0.7 }}>Chats</span></strong>
         <StatusUploader />
         <UserSearch
   onSelect={async otherUser => {
@@ -1045,6 +1045,13 @@ async function deleteMessage(messageId) {
           <>
           {/* 🔝 CHAT HEADER */}
   <div className="chat-header">
+    <button
+  className="mobile-menu"
+  onClick={() => setSidebarOpen(true)}
+>
+  ☰
+</button>
+
     <button
   className="mobile-back"
   onClick={() => {
