@@ -355,28 +355,27 @@ useEffect(() => {
       conversations!participants_conversation_id_fkey (
         id,
         pinned,
-        participants (
+        messages (
+          id,
+          content,
+          created_at,
+          sender_id,
+          read_at
+        ),
+        participants!participants_conversation_id_fkey (
           user_id,
           profiles!participants_user_id_fkey (
             id,
             username,
             avatar_url
           )
-        ),
-        messages (
-          id,
-          content,
-          created_at,
-          sender_id,
-          receiver_id,
-          read_at
         )
       )
     `)
     .eq("user_id", user.id);
 
   if (error) {
-    console.error("fetchConversations error:", error);
+    console.error(error);
     return;
   }
 
@@ -385,43 +384,45 @@ useEffect(() => {
       const convo = row.conversations;
       if (!convo) return null;
 
-      const otherUser =
-        convo.participants
-          ?.map(p => p.profiles)
-          ?.find(p => p && p.id !== user.id) || null;
+      const participants = convo.participants || [];
 
-      if (!otherUser) return null; // 🚫 HARD GUARD
+      const otherParticipant = participants.find(
+        p => p.user_id !== user.id && p.profiles
+      );
 
-      const unreadCount =
-        convo.messages?.filter(
-          m => !m.read_at && m.sender_id !== user.id
-        ).length || 0;
+      if (!otherParticipant) return null;
 
-      const lastMessage =
-        convo.messages
-          ?.sort((a, b) =>
-            new Date(b.created_at) - new Date(a.created_at)
-          )[0] || null;
+      const otherUser = otherParticipant.profiles;
+
+      const messages = convo.messages || [];
+
+      const lastMessage = messages.sort(
+        (a, b) => new Date(b.created_at) - new Date(a.created_at)
+      )[0];
+
+      const unreadCount = messages.filter(
+        m => !m.read_at && m.sender_id !== user.id
+      ).length;
 
       return {
         id: convo.id,
         otherUser,
         lastMessage,
-        lastMessageTime: lastMessage?.created_at,
+        lastMessageTime: lastMessage?.created_at || null,
         unreadCount,
         pinned: convo.pinned ?? false,
       };
     })
-    .filter(Boolean);
-
-  cleaned.sort((a, b) => {
-    if (a.pinned !== b.pinned) return b.pinned - a.pinned;
-    return new Date(b.lastMessageTime || 0) -
-           new Date(a.lastMessageTime || 0);
-  });
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.pinned !== b.pinned) return b.pinned - a.pinned;
+      return new Date(b.lastMessageTime || 0) -
+             new Date(a.lastMessageTime || 0);
+    });
 
   setConversations(cleaned);
 }
+
 
 
   /* ===================== LOAD MESSAGES ===================== */
@@ -1064,48 +1065,47 @@ async function deleteMessage(messageId) {
 </button>
 
 <div className="conversation-list">
-    {conversations
-  .filter(convo => convo.otherUser) // 🔥 CRITICAL
-  .map(convo => (
+  {conversations.map(convo => (
+    <div
+      key={convo.id}
+      className={`conversation-item ${
+        activeConversation === convo.id ? "active" : ""
+      }`}
+      onClick={() => openConversation(convo)}
+    >
+      <img
+        className="avatar"
+        src={convo.otherUser.avatar_url || "/avatar.png"}
+      />
 
-      <div
-  key={convo.id}
-  className={`conversation-item ${convo.unreadCount ? "unread" : ""}`}
-  onClick={() => openConversation(convo)}
->
-  <img
-    className="avatar"
-    src={convo.otherUser?.avatar_url || "/avatar.png"}
-    alt=""
-  />
+      <div className="chat-meta">
+        <div className="row">
+          <span className="name">{convo.otherUser.username}</span>
+          <span className="time">
+            {convo.lastMessageTime &&
+              new Date(convo.lastMessageTime).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+          </span>
+        </div>
 
-  <div className="chat-meta">
-    <div className="row">
-      <span className="name">{convo.otherUser?.username}</span>
-      <span className="time">
-        {convo.lastMessageTime &&
-          new Date(convo.lastMessageTime).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-      </span>
+        <div className="row">
+          <span className="preview">
+            {convo.lastMessage ? "🔒 Encrypted message" : "No messages"}
+          </span>
+
+          {convo.unreadCount > 0 && (
+            <span className="unread-badge">
+              {convo.unreadCount}
+            </span>
+          )}
+        </div>
+      </div>
     </div>
-
-    <div className="row">
-      <span className="preview">
-        {convo.lastMessage ? "🔒 Encrypted message" : "No messages yet"}
-      </span>
-
-      {convo.unreadCount > 0 && (
-        <span className="unread-badge">{convo.unreadCount}</span>
-      )}
-    </div>
-  </div>
+  ))}
 </div>
 
-
-    ))}
-  </div>
 
       </aside>
 
