@@ -1041,30 +1041,39 @@ async function deleteMessage(messageId) {
     {conversations.map(convo => (
       <div
   key={convo.id}
-  className="conversation-item"
+  className={`conversation-item ${convo.unreadCount ? "unread" : ""}`}
   onClick={() => openConversation(convo)}
 >
-  {/* LEFT: username */}
-  <span>{convo.otherUser?.username}</span>
+  <img
+    className="avatar"
+    src={convo.otherUser?.avatar_url || "/avatar.png"}
+    alt=""
+  />
 
-  {/* 🔔 UNREAD BADGE */}
-  {convo.unreadCount > 0 && (
-    <span className="unread-badge">
-      {convo.unreadCount}
-    </span>
-  )}
+  <div className="chat-meta">
+    <div className="row">
+      <span className="name">{convo.otherUser?.username}</span>
+      <span className="time">
+        {convo.lastMessageTime &&
+          new Date(convo.lastMessageTime).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+      </span>
+    </div>
 
-  {/* 📌 SHOW ONLY IF PINNED */}
+    <div className="row">
+      <span className="preview">
+        {convo.lastMessage ? "🔒 Encrypted message" : "No messages yet"}
+      </span>
 
-  {convo.pinned && (
-    <span
-      title="Pinned chat"
-      style={{ fontSize: 14, marginLeft: "auto" }}
-    >
-      📌
-    </span>
-  )}
+      {convo.unreadCount > 0 && (
+        <span className="unread-badge">{convo.unreadCount}</span>
+      )}
+    </div>
+  </div>
 </div>
+
 
     ))}
   </div>
