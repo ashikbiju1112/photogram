@@ -43,6 +43,19 @@ function decrypt(payload, key) {
   return decrypted ? encodeUTF8(decrypted) : "🔒 Unable to decrypt";
 }
 
+function getDateLabel(dateStr) {
+  const msgDate = new Date(dateStr);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  if (msgDate.toDateString() === today.toDateString())
+    return "Today";
+  if (msgDate.toDateString() === yesterday.toDateString())
+    return "Yesterday";
+
+  return msgDate.toLocaleDateString();
+}
 
 
 
@@ -80,6 +93,9 @@ const [replyTo, setReplyTo] = useState(null);
   const [selectedMessage, setSelectedMessage] = useState(null);
 let pressTimer;
 
+const [lastReadAt, setLastReadAt] = useState(null);
+
+const loadingRef = useRef(false);
 
 
 /* ===================== 🔐 SHARED ENCRYPTION KEY ===================== */
@@ -105,6 +121,26 @@ useEffect(() => {
 }
 
 
+const atBottomRef = useRef(true);
+
+useEffect(() => {
+  const el = messagesEndRef.current?.parentElement;
+  if (!el) return;
+
+  const onScroll = () => {
+    atBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+  };
+
+  el.addEventListener("scroll", onScroll);
+  return () => el.removeEventListener("scroll", onScroll);
+}, []);
+
+useEffect(() => {
+  if (atBottomRef.current) {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }
+}, [messages]);
 
 
 
@@ -117,10 +153,9 @@ useEffect(() => {
 
 
 function onPress(msg) {
-  pressTimer = setTimeout(() => {
-    setSelectedMessage(msg);
-  }, 400);
+  setReplyTo(msg);
 }
+
 
 function cancelPress() {
   clearTimeout(pressTimer);
@@ -373,6 +408,8 @@ setConversations(cleaned);
   /* ===================== LOAD MESSAGES ===================== */
 
   async function loadMessages(initial = false) {
+    if (loadingRef.current) return;
+  loadingRef.current = true;
   if (!activeConversation || !user?.id) return;
 
   let query = supabase
@@ -404,6 +441,7 @@ setConversations(cleaned);
 
   // 👇 update cursor to OLDEST loaded message
   setOldestTimestamp(reversed[0].created_at);
+  loadingRef.current = false;
 }
 
 
@@ -662,6 +700,7 @@ async function rejectCall() {
 
   setActiveConversation(convo.id);
   setActiveUser(convo.otherUser);
+  setLastReadAt(new Date().toISOString());
   setSidebarOpen(false);
 }
 
@@ -1098,53 +1137,63 @@ async function deleteMessage(messageId) {
     </div>
   </div>
             <div
-              className="messages"
-              onScroll={e => {
-  if (e.target.scrollTop === 0 && hasMore) {
-
-    loadMessages(false);
-  }
-}}
-
-            >
-              <List
-  height={window.innerHeight - 220}
-  itemCount={messages.length}
-  itemSize={90}   // ⬅ slightly larger for reactions/time
-  width="100%"
+  className="messages"
+  onScroll={e => {
+    if (e.target.scrollTop === 0 && hasMore) {
+      loadMessages(false);
+    }
+  }}
 >
-  {({ index, style }) => {
-    const msg = messages[index];
-if (!msg) return null;
+  {(() => {
+    let lastDate = null;
+    let newDividerShown = false;
 
-    const isMe = msg.sender_id === user.id;
+    return messages.map(msg => {
+      const msgDate = new Date(msg.created_at).toDateString();
+      const showDate = msgDate !== lastDate;
+      lastDate = msgDate;
 
-    return (
-      <div style={style}>
-        <div className={`msg ${isMe ? "right" : "left"}`}>
+      const isMe = msg.sender_id === user.id;
+
+      const showNewDivider =
+        lastReadAt &&
+        !isMe &&
+        !newDividerShown &&
+        new Date(msg.created_at) > new Date(lastReadAt);
+
+      if (showNewDivider) newDividerShown = true;
+
+      return (
+        <div key={msg.id} className={`msg ${isMe ? "right" : "left"}`}>
+          
+          {showDate && (
+            <div className="date-separator">
+              {getDateLabel(msg.created_at)}
+            </div>
+          )}
+
+          {showNewDivider && (
+            <div className="new-messages">New messages</div>
+          )}
 
           {/* 💬 MESSAGE BUBBLE */}
           <div onDoubleClick={() => react(msg.id, "❤️")}>
             <div
               onMouseDown={() => onPress(msg)}
-              onMouseUp={cancelPress}
               onTouchStart={() => onPress(msg)}
-              onTouchEnd={cancelPress}
               style={{ display: "flex", alignItems: "center", gap: 6 }}
             >
               <span>
                 {(() => {
-  try {
-    if (!sharedKey) return "🔒 Encrypted message";
-    return decrypt(msg.content, sharedKey);
-  } catch {
-    return "🔒 Encrypted message";
-  }
-})()}
-
+                  try {
+                    if (!sharedKey) return "🔒 Encrypted message";
+                    return decrypt(msg.content, sharedKey);
+                  } catch {
+                    return "🔒 Encrypted message";
+                  }
+                })()}
               </span>
 
-              {/* 🗑 ADMIN DELETE */}
               {isAdmin && (
                 <button
                   onClick={() => deleteMessage(msg.id)}
@@ -1155,55 +1204,44 @@ if (!msg) return null;
                     fontSize: 12,
                     color: "red",
                   }}
-                  title="Delete message"
                 >
                   🗑
                 </button>
               )}
             </div>
-
-            {/* ❤️ REACTIONS */}
-            {reactions[msg.id] && (
-              <div style={{ fontSize: 12, marginTop: 4 }}>
-                {Object.entries(reactions[msg.id]).map(([emoji, count]) => (
-                  <span key={emoji} style={{ marginRight: 6 }}>
-                    {emoji} {count}
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
 
-          {/* ⏱ TIME / DELIVERY */}
           <div className="time">
-            {isMe && (
-              msg.read_at
-                ? "✔✔ "
-                : msg.delivered_at
-                ? "✔ "
-                : "⏳ "
-            )}
+            {isMe && (msg.pending ? "⏳ " : msg.read_at ? "✔✔ " : "✔ ")}
             {new Date(msg.created_at).toLocaleTimeString([], {
               hour: "2-digit",
               minute: "2-digit",
             })}
           </div>
-
         </div>
+      );
+    });
+  })()}
 
-      </div>
-    );
-  }}
-</List>
-              
-              <div ref={messagesEndRef} />
-            </div>
+  <div ref={messagesEndRef} />
+</div>
+
 
             {typingUserId && <div className="typing-indicator">
     <span></span>
     <span></span>
     <span></span>
-  </div>}
+  </div>}{replyTo && (
+  <div className="reply-preview">
+    <span>Replying to:</span>
+    <p>
+      {decrypt(replyTo.content, sharedKey)}
+    </p>
+    <button onClick={() => setReplyTo(null)}>✕</button>
+  </div>
+)}
+
+
 
             <div className="chat-input">
               <input value={text} onChange={handleTyping} />
