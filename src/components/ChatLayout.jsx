@@ -348,80 +348,81 @@ useEffect(() => {
   /* ===================== FETCH CONVERSATIONS ===================== */
 
   async function fetchConversations() {
-    const { data, error } = await supabase
-      .from("participants")
-      .select(`
-        conversation_id,
-        conversations:conversation_id (
-          id,
-          pinned,
-          participants (
-            user_id,
-            profiles!participants_user_id_fkey (
-              id,
-              username,
-              avatar_url
-            )
-          ),
-          messages (
+  const { data, error } = await supabase
+    .from("participants")
+    .select(`
+      conversation_id,
+      conversations!participants_conversation_id_fkey (
+        id,
+        pinned,
+        participants (
+          user_id,
+          profiles!participants_user_id_fkey (
             id,
-            content,
-            created_at,
-            sender_id,
-            receiver_id,
-            read_at
+            username,
+            avatar_url
           )
+        ),
+        messages (
+          id,
+          content,
+          created_at,
+          sender_id,
+          receiver_id,
+          read_at
         )
-      `)
-      .eq("user_id", user.id);
+      )
+    `)
+    .eq("user_id", user.id);
 
-
-    if (error) {
-      console.error(error);
-      return;
-    }
-
-    const cleaned = data
-  .map(row => {
-    const convo = row.conversations;
-
-    const otherUser =
-      convo.participants
-        ?.map(p => p.profiles)
-        ?.find(p => p && p.id !== user.id) ?? null;
-
-    const unreadCount =
-      convo.messages?.filter(
-        m => !m.read_at && m.sender_id !== user.id
-      ).length || 0;
-
-    const lastMessage =
-      convo.messages
-        ?.sort((a, b) =>
-          new Date(b.created_at) - new Date(a.created_at)
-        )[0] || null;
-
-    return {
-      id: convo.id,
-      otherUser,
-      lastMessage,
-      lastMessageTime: lastMessage?.created_at,
-      unreadCount,
-      pinned: convo.pinned ?? false,
-    };
-  })
-  .filter(c => c.otherUser); // ✅ THIS LINE FIXES EVERYTHING
-
-cleaned.sort((a, b) => {
-  if (a.pinned !== b.pinned) return b.pinned - a.pinned;
-  return new Date(b.lastMessageTime || 0) -
-         new Date(a.lastMessageTime || 0);
-});
-
-setConversations(cleaned);
-
-
+  if (error) {
+    console.error("fetchConversations error:", error);
+    return;
   }
+
+  const cleaned = data
+    .map(row => {
+      const convo = row.conversations;
+      if (!convo) return null;
+
+      const otherUser =
+        convo.participants
+          ?.map(p => p.profiles)
+          ?.find(p => p && p.id !== user.id) || null;
+
+      if (!otherUser) return null; // 🚫 HARD GUARD
+
+      const unreadCount =
+        convo.messages?.filter(
+          m => !m.read_at && m.sender_id !== user.id
+        ).length || 0;
+
+      const lastMessage =
+        convo.messages
+          ?.sort((a, b) =>
+            new Date(b.created_at) - new Date(a.created_at)
+          )[0] || null;
+
+      return {
+        id: convo.id,
+        otherUser,
+        lastMessage,
+        lastMessageTime: lastMessage?.created_at,
+        unreadCount,
+        pinned: convo.pinned ?? false,
+      };
+    })
+    .filter(Boolean);
+
+  cleaned.sort((a, b) => {
+    if (a.pinned !== b.pinned) return b.pinned - a.pinned;
+    return new Date(b.lastMessageTime || 0) -
+           new Date(a.lastMessageTime || 0);
+  });
+
+  setConversations(cleaned);
+}
+
 
   /* ===================== LOAD MESSAGES ===================== */
 
