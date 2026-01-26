@@ -143,6 +143,13 @@ useEffect(() => {
 }, [messages]);
 
 
+useEffect(() => {
+  conversations.forEach(c => {
+    if (!c.otherUser) {
+      console.warn("⚠️ Broken conversation:", c);
+    }
+  });
+}, [conversations]);
 
 
 
@@ -367,8 +374,8 @@ useEffect(() => {
       .map(row => {
   const convo = row.conversations;
   const otherUser = convo.participants
-    .map(p => p.profiles)
-    .find(p => p.id !== user.id);
+    ?.map(p => p.profiles)
+    ?.find(p => p && p.id && p.id !== user.id) || null;
 
   const unreadCount = convo.messages?.filter(
     m => !m.read_at && m.sender_id !== user.id
@@ -693,8 +700,14 @@ async function rejectCall() {
   /* ===================== HELPERS ===================== */
 
   function openConversation(convo) {
-  if (!convo?.id || !convo?.otherUser?.id) {
-    console.warn("Invalid conversation", convo);
+  if (!convo?.id) {
+    console.warn("Invalid conversation object", convo);
+    return;
+  }
+
+  if (!convo.otherUser) {
+    console.warn("Conversation has no otherUser", convo);
+    alert("⚠️ Cannot open this chat (user data missing)");
     return;
   }
 
@@ -703,6 +716,7 @@ async function rejectCall() {
   setLastReadAt(new Date().toISOString());
   setSidebarOpen(false);
 }
+
 
 
   async function openOrCreateConversation(otherUser) {
@@ -1038,7 +1052,10 @@ async function deleteMessage(messageId) {
 </button>
 
 <div className="conversation-list">
-    {conversations.map(convo => (
+    {conversations
+  .filter(convo => convo.otherUser) // 🔥 CRITICAL
+  .map(convo => (
+
       <div
   key={convo.id}
   className={`conversation-item ${convo.unreadCount ? "unread" : ""}`}
