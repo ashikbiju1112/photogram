@@ -352,18 +352,29 @@ useEffect(() => {
       .from("participants")
       .select(`
         conversation_id,
-        conversations (
+        conversations:conversation_id (
           id,
           pinned,
           participants (
-            profiles (id, username, avatar_url)
+            user_id,
+            profiles!participants_user_id_fkey (
+              id,
+              username,
+              avatar_url
+            )
           ),
           messages (
-            id, content, created_at, sender_id, receiver_id
+            id,
+            content,
+            created_at,
+            sender_id,
+            receiver_id,
+            read_at
           )
         )
       `)
       .eq("user_id", user.id);
+
 
     if (error) {
       console.error(error);
@@ -373,9 +384,10 @@ useEffect(() => {
     const cleaned = data
       .map(row => {
   const convo = row.conversations;
-  const otherUser = convo.participants
+  const otherUser =
+  convo.participants
     ?.map(p => p.profiles)
-    ?.find(p => p && p.id && p.id !== user.id) || null;
+    ?.find(p => p && p.id !== user.id) ?? null;
 
   const unreadCount = convo.messages?.filter(
     m => !m.read_at && m.sender_id !== user.id
