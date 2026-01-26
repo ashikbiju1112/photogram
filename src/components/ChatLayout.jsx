@@ -382,45 +382,44 @@ useEffect(() => {
     }
 
     const cleaned = data
-      .map(row => {
-  const convo = row.conversations;
-  const otherUser =
-  convo.participants
-    ?.map(p => p.profiles)
-    ?.find(p => p && p.id !== user.id) ?? null;
+  .map(row => {
+    const convo = row.conversations;
 
-  const unreadCount = convo.messages?.filter(
-    m => !m.read_at && m.sender_id !== user.id
-  ).length || 0;
+    const otherUser =
+      convo.participants
+        ?.map(p => p.profiles)
+        ?.find(p => p && p.id !== user.id) ?? null;
 
-  const lastMessage = convo.messages
-    ?.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+    const unreadCount =
+      convo.messages?.filter(
+        m => !m.read_at && m.sender_id !== user.id
+      ).length || 0;
 
-  return {
-    id: convo.id,
-    otherUser,
-    lastMessage,
-    lastMessageTime: lastMessage?.created_at,
-    unreadCount, // ✅ ADD THIS
-    pinned: convo.pinned ?? false,
-  };
-})
-      .filter(Boolean)
-      .sort(
-        (a, b) =>
-          new Date(b.lastMessageTime || 0) -
-          new Date(a.lastMessageTime || 0)
-      );
+    const lastMessage =
+      convo.messages
+        ?.sort((a, b) =>
+          new Date(b.created_at) - new Date(a.created_at)
+        )[0] || null;
 
-    cleaned.sort((a, b) => {
-  // 1️⃣ pinned first
+    return {
+      id: convo.id,
+      otherUser,
+      lastMessage,
+      lastMessageTime: lastMessage?.created_at,
+      unreadCount,
+      pinned: convo.pinned ?? false,
+    };
+  })
+  .filter(c => c.otherUser); // ✅ THIS LINE FIXES EVERYTHING
+
+cleaned.sort((a, b) => {
   if (a.pinned !== b.pinned) return b.pinned - a.pinned;
-
-  // 2️⃣ newest message next
-  return new Date(b.lastMessageTime || 0) - new Date(a.lastMessageTime || 0);
+  return new Date(b.lastMessageTime || 0) -
+         new Date(a.lastMessageTime || 0);
 });
 
 setConversations(cleaned);
+
 
   }
 
