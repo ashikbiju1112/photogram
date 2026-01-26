@@ -20,7 +20,10 @@
   background: var(--wa-bg);
   color: var(--wa-text);
 }
-
+.chat-meta {
+  flex: 1;
+  min-width: 0;
+}
 /* ================= SIDEBAR ================= */
 
 .sidebar {
@@ -66,6 +69,17 @@
   color: #8696a0;
 }
 
+
+.sidebar-search {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: none;
+  background: #2a2a2a;
+  color: white;
+  margin: 10px 0;
+}
+
 /* ================= CONVERSATION LIST ================= */
 
 .conversation-list {
@@ -79,7 +93,7 @@
   gap: 12px;
   padding: 10px 14px;
   cursor: pointer;
-  border-bottom: 1px solid #1f2c33;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
 }
 
 .conversation-item span:first-child {
@@ -88,7 +102,7 @@
 }
 
 .conversation-item:hover {
-  background: #182229;
+  background: rgba(255,255,255,0.08);
 }
 
 .conversation-item.active {
@@ -96,6 +110,7 @@
 }
 
 .preview {
+  opacity: 0.75;
   font-size: 13px;
   color: var(--wa-muted);
   max-width: 180px;
@@ -103,16 +118,40 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.preview:has(textarea),
+.preview.typing {
+  color: #25d366;
+  font-style: italic;
+}
+
 .avatar {
-  width: 48px;
-  height: 48px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
+  object-fit: cover;
 }
 .row {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
+
+.avatar-wrapper {
+  position: relative;
+}
+
+.online-dot {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 10px;
+  height: 10px;
+  background: #25d366;
+  border-radius: 50%;
+  border: 2px solid #111;
+}
+
 /* ================= CHAT WINDOW ================= */
 
 .chat-window {
@@ -148,7 +187,7 @@
   border-radius: 50%;
 }
 .name {
-  font-weight: 500;
+  font-weight: 600;
 }
 .username {
   font-weight: 500;
@@ -345,11 +384,11 @@
 }
 .unread-badge {
   background: #25d366;
-  color: #111;
-  font-size: 11px;
-  padding: 3px 7px;
-  border-radius: 12px;
-  font-weight: 600;
+  color: #000;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: bold;
 }
 .mobile-back {
   display: none;
@@ -481,3 +520,27 @@
   border-radius: 10px;
   margin: 12px 0;
 }
+
+
+/* ================= GROUP AVATARS ================= */
+.group-avatar {
+  width: 42px;
+  height: 42px;
+  position: relative;
+}
+
+.group-avatar img {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  position: absolute;
+  border: 2px solid #111;
+}
+
+.group-avatar img:nth-child(1) { top: 0; left: 0; }
+.group-avatar img:nth-child(2) { top: 0; right: 0; }
+.group-avatar img:nth-child(3) { bottom: 0; left: 10px; }
+
+
+
+

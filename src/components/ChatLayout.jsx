@@ -76,7 +76,8 @@ const isAdmin = role === "admin";
   const [typingUserId, setTypingUserId] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null);
 const [activeCallId, setActiveCallId] = useState(null);
-
+const [typingInConversation, setTypingInConversation] = useState({});
+const [search, setSearch] = useState("");
 const localVideoRef = useRef(null);
 const remoteVideoRef = useRef(null);
 
@@ -156,6 +157,18 @@ useEffect(() => {
 
   /* ===================== PRESENCE ===================== */
 
+async function muteChat(id) {
+  await supabase
+    .from("conversations")
+    .update({ muted: true })
+    .eq("id", id);
+}
+async function archiveChat(id) {
+  await supabase
+    .from("conversations")
+    .update({ archived: true })
+    .eq("id", id);
+}
 
 
 
@@ -355,6 +368,8 @@ useEffect(() => {
       conversations!participants_conversation_id_fkey (
         id,
         pinned,
+        muted,
+        archived,
         messages (
           id,
           content,
@@ -406,12 +421,16 @@ useEffect(() => {
 
       return {
         id: convo.id,
+        participants,          // 👈 ADD THIS
         otherUser,
         lastMessage,
         lastMessageTime: lastMessage?.created_at || null,
         unreadCount,
         pinned: convo.pinned ?? false,
+        muted: convo.muted ?? false,        // 👈 ADD
+        archived: convo.archived ?? false,  // 👈 ADD
       };
+
     })
     .filter(Boolean)
     .sort((a, b) => {
@@ -422,6 +441,7 @@ useEffect(() => {
 
   setConversations(cleaned);
 }
+
 
 
 
@@ -495,14 +515,28 @@ useEffect(() => {
     .subscribe();
 
   const typingChannel = supabase
-    .channel(`typing-${activeConversation}`)
-    .on("broadcast", { event: "typing" }, payload => {
-      if (payload.payload.userId !== user.id) {
-        setTypingUserId(payload.payload.userId);
-        setTimeout(() => setTypingUserId(null), 1200);
-      }
-    })
-    .subscribe();
+  .channel(`typing-${activeConversation}`)
+  .on("broadcast", { event: "typing" }, payload => {
+    const { userId, conversationId } = payload.payload;
+
+    if (userId === user.id) return;
+
+    // 🔥 SIDEBAR typing preview
+    setTypingInConversation(prev => ({
+      ...prev,
+      [conversationId]: true,
+    }));
+
+    setTimeout(() => {
+      setTypingInConversation(prev => {
+        const copy = { ...prev };
+        delete copy[conversationId];
+        return copy;
+      });
+    }, 1500);
+  })
+  .subscribe();
+
 
   return () => {
     supabase.removeChannel(msgChannel);
@@ -706,7 +740,10 @@ async function rejectCall() {
     supabase.channel(`typing-${activeConversation}`).send({
       type: "broadcast",
       event: "typing",
-      payload: { userId: user.id },
+      payload: {
+  userId: user.id,
+  conversationId: activeConversation
+},
     });
   }
 
@@ -1063,48 +1100,102 @@ async function deleteMessage(messageId) {
 >
   🎨
 </button>
+<input
+  className="sidebar-search"
+  placeholder="Search chats"
+  value={search}
+  onChange={e => setSearch(e.target.value)}
+/>
+
 
 <div className="conversation-list">
-  {conversations.map(convo => (
-    <div
-      key={convo.id}
-      className={`conversation-item ${
-        activeConversation === convo.id ? "active" : ""
-      }`}
-      onClick={() => openConversation(convo)}
-    >
-      <img
-        className="avatar"
-        src={convo.otherUser.avatar_url || "/avatar.png"}
-      />
+  {conversations
+  .filter(
+    c =>
+      !c.archived &&
+      c.otherUser.username
+        .toLowerCase()
+        .includes(search.toLowerCase())
+  )
+  .map(convo => {
+    const isGroup = convo.participants.length > 2;
 
-      <div className="chat-meta">
-        <div className="row">
-          <span className="name">{convo.otherUser.username}</span>
-          <span className="time">
-            {convo.lastMessageTime &&
-              new Date(convo.lastMessageTime).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-          </span>
-        </div>
-
-        <div className="row">
-          <span className="preview">
-            {convo.lastMessage ? "🔒 Encrypted message" : "No messages"}
-          </span>
-
-          {convo.unreadCount > 0 && (
-            <span className="unread-badge">
-              {convo.unreadCount}
-            </span>
+    return (
+      <div
+        key={convo.id}
+        className={`conversation-item ${
+          activeConversation === convo.id ? "active" : ""
+        }`}
+        onClick={() => openConversation(convo)}
+      >
+        <div className="avatar-wrapper">
+          {isGroup ? (
+            <div className="group-avatar">
+              {convo.participants.slice(0, 3).map(p => (
+                <img
+                  key={p.user_id}
+                  src={p.profiles.avatar_url || "/avatar.png"}
+                />
+              ))}
+            </div>
+          ) : (
+            <>
+              <img
+                className="avatar"
+                src={convo.otherUser.avatar_url || "/avatar.png"}
+              />
+              {onlineUsers[convo.otherUser.id] && (
+                <span className="online-dot" />
+              )}
+            </>
           )}
         </div>
+
+        <button
+          className="pin-btn"
+          onClick={e => {
+            e.stopPropagation();
+            pinChat(convo.id);
+          }}
+        >
+          📌
+        </button>
+
+        {convo.muted && <span className="muted">🔕</span>}
+
+        <div className="chat-meta">
+          <div className="row">
+            <span className="name">{convo.otherUser.username}</span>
+            <span className="time">
+              {convo.lastMessageTime &&
+                new Date(convo.lastMessageTime).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+            </span>
+          </div>
+
+          <div className="row">
+            <span className="preview">
+              {typingInConversation[convo.id]
+                ? "typing…"
+                : convo.lastMessage
+                ? "🔒 Encrypted message"
+                : "No messages"}
+            </span>
+
+            {convo.unreadCount > 0 && (
+              <span className="unread-badge">
+                {convo.unreadCount}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
-  ))}
-</div>
+    );
+})}
+  </div>
+
 
 
       </aside>
