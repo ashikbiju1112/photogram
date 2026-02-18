@@ -1,14 +1,10 @@
-import { useEffect, useRef, useState ,useMemo} from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import "./chat.css";
 import UserSearch from "./UserSearch";
 import { useAuth } from "../hooks/useAuth";
 import StatusUploader from "./StatusUploader";
-import { FixedSizeList as List } from "react-window";
-import { createPeerConnection, getLocalStream } from "../lib/webrtc";
-
-
-
+import { createPeerConnection } from "../lib/webrtc";
 import nacl from "tweetnacl";
 import {
   encodeUTF8,
@@ -17,30 +13,39 @@ import {
   decodeBase64
 } from "tweetnacl-util";
 
-/* 🔐 ENCRYPT */
+/* 🔐 ENCRYPTION FUNCTIONS */
 function encrypt(text, key) {
-  const nonce = nacl.randomBytes(24);
-  const encrypted = nacl.secretbox(
-    decodeUTF8(text),
-    nonce,
-    key
-  );
-
-  return encodeBase64(nonce) + ":" + encodeBase64(encrypted);
+  if (!text || !key) return text;
+  try {
+    const nonce = nacl.randomBytes(24);
+    const encrypted = nacl.secretbox(
+      decodeUTF8(text),
+      nonce,
+      key
+    );
+    return encodeBase64(nonce) + ":" + encodeBase64(encrypted);
+  } catch (error) {
+    console.error("Encryption error:", error);
+    return text;
+  }
 }
 
-/* 🔓 DECRYPT */
 function decrypt(payload, key) {
-  if (!payload) return "";
-
-  const [n, e] = payload.split(":");
-  const decrypted = nacl.secretbox.open(
-    decodeBase64(e),
-    decodeBase64(n),
-    key
-  );
-
-  return decrypted ? encodeUTF8(decrypted) : "🔒 Unable to decrypt";
+  if (!payload || !key) return payload;
+  try {
+    const [n, e] = payload.split(":");
+    if (!n || !e) return "🔒 Encrypted message";
+    
+    const decrypted = nacl.secretbox.open(
+      decodeBase64(e),
+      decodeBase64(n),
+      key
+    );
+    return decrypted ? encodeUTF8(decrypted) : "🔒 Unable to decrypt";
+  } catch (error) {
+    console.error("Decryption error:", error);
+    return "🔒 Encrypted message";
+  }
 }
 
 function getDateLabel(dateStr) {
@@ -53,19 +58,21 @@ function getDateLabel(dateStr) {
     return "Today";
   if (msgDate.toDateString() === yesterday.toDateString())
     return "Yesterday";
-
-  return msgDate.toLocaleDateString();
+  return msgDate.toLocaleDateString(undefined, { 
+    weekday: 'long', 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric' 
+  });
 }
-
-
 
 const PAGE_SIZE = 30;
 
 export default function ChatLayout() {
- const { user, loading, isBanned, bannedUntil, role } = useAuth();
-const isAdmin = role === "admin";
+  const { user, loading, isBanned, bannedUntil, role } = useAuth();
+  const isAdmin = role === "admin";
 
-
+  // State management
   const [messages, setMessages] = useState([]);
   const [hasMore, setHasMore] = useState(true);
   const [text, setText] = useState("");
@@ -73,115 +80,81 @@ const isAdmin = role === "admin";
   const [activeUser, setActiveUser] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState({});
-  const [typingUserId, setTypingUserId] = useState(null);
-  const [incomingCall, setIncomingCall] = useState(null);
-const [activeCallId, setActiveCallId] = useState(null);
-const [typingInConversation, setTypingInConversation] = useState({});
-const [search, setSearch] = useState("");
-const localVideoRef = useRef(null);
-const remoteVideoRef = useRef(null);
-
-const pcRef = useRef(null);
-
+  const [typingInConversation, setTypingInConversation] = useState({});
+  const [search, setSearch] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [oldestTimestamp, setOldestTimestamp] = useState(null);
+  const [replyTo, setReplyTo] = useState(null);
+  const [lastReadAt, setLastReadAt] = useState(null);
+  const [incomingCall, setIncomingCall] = useState(null);
+  const [activeCallId, setActiveCallId] = useState(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [messageReactions, setMessageReactions] = useState({});
+  const [selectedMessages, setSelectedMessages] = useState([]);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [storyViewer, setStoryViewer] = useState(null);
+  const [userStories, setUserStories] = useState([]);
+  const [showStoryViewer, setShowStoryViewer] = useState(false);
+  const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [showProfileSidebar, setShowProfileSidebar] = useState(false);
+  const [activeProfile, setActiveProfile] = useState(null);
+  const [chatSettings, setChatSettings] = useState({
+    wallpaper: null,
+    mute: false,
+    pin: false,
+    archive: false
+  });
+  const [isFetchingConversations, setIsFetchingConversations] = useState(false);
 
+  // Refs
   const messagesEndRef = useRef(null);
   const typingTimeout = useRef(null);
-  const [oldestTimestamp, setOldestTimestamp] = useState(null);
-const [reactions, setReactions] = useState({});
-const [replyTo, setReplyTo] = useState(null);
+  const loadingRef = useRef(false);
+  const atBottomRef = useRef(true);
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const pcRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const voiceRecorderRef = useRef(null);
+  const voiceTimerRef = useRef(null);
+  const emojiPickerRef = useRef(null);
+  const storyTimerRef = useRef(null);
 
-  const [selectedMessage, setSelectedMessage] = useState(null);
-let pressTimer;
+  /* ===================== ENCRYPTION KEY - Deterministic ===================== */
+  const sharedKey = useMemo(() => {
+    if (!activeConversation || !user?.id || !activeUser?.id) return null;
+    
+    // Sort user IDs to ensure same key for both participants
+    const sortedUserIds = [user.id, activeUser.id].sort().join('_');
+    const keyMaterial = `${activeConversation}_${sortedUserIds}`;
+    return nacl
+      .hash(new TextEncoder().encode(keyMaterial))
+      .slice(0, 32);
+  }, [activeConversation, user?.id, activeUser?.id]);
 
-const [lastReadAt, setLastReadAt] = useState(null);
+  /* ===================== SCROLL MANAGEMENT ===================== */
+  useEffect(() => {
+    const el = messagesEndRef.current?.parentElement;
+    if (!el) return;
 
-const loadingRef = useRef(false);
+    const onScroll = () => {
+      atBottomRef.current =
+        el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+    };
 
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
 
-/* ===================== 🔐 SHARED ENCRYPTION KEY ===================== */
-const sharedKey = useMemo(() => {
-  if (!activeConversation) return null;
-
-  return nacl
-    .hash(new TextEncoder().encode(activeConversation))
-    .slice(0, 32);
-}, [activeConversation]);
-
-useEffect(() => {
-  console.log("sharedKey (ChatLayout):", sharedKey);
-}, [sharedKey]);
-
- /*====================Change Role====================*/
- async function changeRole(userId, role) {
-  await supabase
-    .from("participants")
-    .update({ role })
-    .eq("conversation_id", activeConversation)
-    .eq("user_id", userId);
-}
-
-
-const atBottomRef = useRef(true);
-
-useEffect(() => {
-  const el = messagesEndRef.current?.parentElement;
-  if (!el) return;
-
-  const onScroll = () => {
-    atBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 50;
-  };
-
-  el.addEventListener("scroll", onScroll);
-  return () => el.removeEventListener("scroll", onScroll);
-}, []);
-
-useEffect(() => {
-  if (atBottomRef.current) {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }
-}, [messages]);
-
-
-useEffect(() => {
-  conversations.forEach(c => {
-    if (!c.otherUser) {
-      console.warn("⚠️ Broken conversation:", c);
+  useEffect(() => {
+    if (atBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  });
-}, [conversations]);
+  }, [messages]);
 
-
-
-
-  /* ===================== PRESENCE ===================== */
-
-async function muteChat(id) {
-  await supabase
-    .from("conversations")
-    .update({ muted: true })
-    .eq("id", id);
-}
-async function archiveChat(id) {
-  await supabase
-    .from("conversations")
-    .update({ archived: true })
-    .eq("id", id);
-}
-
-
-
-function onPress(msg) {
-  setReplyTo(msg);
-}
-
-
-function cancelPress() {
-  clearTimeout(pressTimer);
-}
-
-
+  /* ===================== PRESENCE MANAGEMENT ===================== */
   useEffect(() => {
     if (loading || !user?.id) return;
 
@@ -191,31 +164,24 @@ function cancelPress() {
       config: { presence: { key: user.id } },
     });
 
-    presenceChannel.on("presence", { event: "sync" }, () => {
-      const state = presenceChannel.presenceState() || {};
-      const online = {};
-      Object.keys(state).forEach(id => (online[id] = true));
-      setOnlineUsers(online);
-    });
-
-    presenceChannel.subscribe(async status => {
-      if (status === "SUBSCRIBED") {
-        await presenceChannel.track({ online: true });
-      }
-    });
+    presenceChannel
+      .on("presence", { event: "sync" }, () => {
+        const state = presenceChannel.presenceState() || {};
+        const online = {};
+        Object.keys(state).forEach(id => (online[id] = true));
+        setOnlineUsers(online);
+      })
+      .subscribe(async status => {
+        if (status === "SUBSCRIBED") {
+          await presenceChannel.track({ online_at: new Date().toISOString() });
+        }
+      });
 
     return () => supabase.removeChannel(presenceChannel);
   }, [loading, user?.id]);
 
-
-//
-
-
-
-
-//pushIceCandidate
-
-  /*async function pushIceCandidate(role, candidate, callId) {
+  /* ===================== CALL MANAGEMENT ===================== */
+  async function pushIceCandidate(role, candidate, callId) {
     const { data, error } = await supabase
       .from("calls")
       .select("ice_candidates")
@@ -227,9 +193,10 @@ function cancelPress() {
       return;
     }
 
-    const ice = data.ice_candidates || { caller: [], callee: [] };
+    const ice = data.ice_candidates ?? {};
+    ice.caller = ice.caller ?? [];
+    ice.callee = ice.callee ?? [];
 
-    // 🔴 Prevent duplicates (IMPORTANT)
     if (!ice[role].some(c => c.candidate === candidate.candidate)) {
       ice[role].push(candidate);
     }
@@ -238,596 +205,300 @@ function cancelPress() {
       .from("calls")
       .update({ ice_candidates: ice })
       .eq("id", callId);
-  }*/
-
-
-      async function pushIceCandidate(role, candidate, callId) {
-  const { data, error } = await supabase
-    .from("calls")
-    .select("ice_candidates")
-    .eq("id", callId)
-    .single();
-
-  if (error) {
-    console.error("ICE read error", error);
-    return;
   }
 
-  const ice = data.ice_candidates ?? {};
-ice.caller = ice.caller ?? [];
-ice.callee = ice.callee ?? [];
-
-
-  // 🔒 Prevent duplicates safely
-  if (!ice[role].some(c => c.candidate === candidate.candidate)) {
-    ice[role].push(candidate);
-  }
-
-  await supabase
-    .from("calls")
-    .update({ ice_candidates: ice })
-    .eq("id", callId);
-}
-
-
-
-
-/* ===================== GROUP CREATION ===================== */
-
-async function createGroup(name, members) {
-  const { data: convo } = await supabase
-    .from("conversations")
-    .insert({ is_group: true, name })
-    .select()
-    .single();
-
-  await supabase.from("participants").insert([
-    { conversation_id: convo.id, user_id: user.id, role: "admin" },
-    ...members.map(u => ({
-      conversation_id: convo.id,
-      user_id: u.id,
-      role: "member",
-    })),
-  ]);
-}
-
-
- /* ====================== PIN CHAT ===================== */
-
-async function pinChat(conversationId) {
-  await supabase
-    .from("conversations")
-    .update({ pinned: true })
-    .eq("id", conversationId);
-}
-
- /* ===================== SEARCH MESSAGES ===================== */
-
-
- /*async function searchMessages(q) {
-  if (!q) return loadMessages(true);
-
-  const { data } = await supabase
-    .from("messages")
-    .select("*")
-    .eq("conversation_id", activeConversation)
-    .ilike("content", `%${q}%`);
-
-  setMessages(data || []);
-}*/
-
-
-async function searchMessages() {
-  alert("🔒 Search not available for encrypted chats");
-}
-
-
-useEffect(() => {
-  console.log("🟢 realtime calls channel active"); // 👈 HERE
-  if (!user?.id) return;
-
-  const channel = supabase
-    .channel("incoming-calls")
-    .on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        schema: "public",
-        table: "calls",
-      },
-      payload => {
-        console.log("📞 RAW CALL INSERT:", payload.new); // 👈 HERE
-        const call = payload.new;
-
-        // 🔥 critical guard
-        if (
-  call.status === "ringing" &&
-  call.participants?.includes(user.id) &&
-  call.caller_id !== user.id
-) {
-  console.log("📞 Incoming call:", call);
-  setIncomingCall(call);
-}
-
-
-      }
-    )
-    .subscribe();
-
-  return () => supabase.removeChannel(channel);
-}, [user?.id]);
-
-
-  /* ===================== FETCH CONVERSATIONS ===================== */
-
+  /* ===================== FETCH CONVERSATIONS - OPTIMIZED with RPC ===================== */
   async function fetchConversations() {
-  const { data, error } = await supabase
-    .from("participants")
-    .select(`
-      conversation_id,
-      conversations!participants_conversation_id_fkey (
-        id,
-        pinned,
-        muted,
-        archived,
-        messages (
-          id,
-          content,
-          created_at,
-          sender_id,
-          read_at
-        ),
-        participants!participants_conversation_id_fkey (
-          user_id,
-          profiles!participants_user_id_fkey (
-            id,
-            username,
-            avatar_url
-          )
-        )
-      )
-    `)
-    .eq("user_id", user.id);
+    if (isFetchingConversations) return;
+    setIsFetchingConversations(true);
 
-  if (error) {
-    console.error(error);
-    return;
-  }
+    try {
+      // First, get all conversations the user is part of with basic info
+      const { data: userConversations, error: convError } = await supabase
+        .rpc('get_user_conversations', { user_id: user.id });
 
-  const cleaned = data
-    .map(row => {
-      const convo = row.conversations;
-      if (!convo) return null;
+      if (convError) throw convError;
 
-      const participants = convo.participants || [];
+      // Then, for each conversation, get only the last message efficiently
+      const conversationsWithDetails = await Promise.all(
+        userConversations.map(async (convo) => {
+          // Get participants for this conversation
+          const { data: participants } = await supabase
+            .from("participants")
+            .select(`
+              user_id,
+              role,
+              joined_at,
+              profiles!participants_user_id_fkey (
+                id,
+                username,
+                avatar_url,
+                bio,
+                last_seen
+              )
+            `)
+            .eq("conversation_id", convo.id);
 
-      const otherParticipant = participants.find(
-        p => p.user_id !== user.id && p.profiles
+          // Get only the last message using a separate efficient query
+          const { data: lastMessages } = await supabase
+            .from("messages")
+            .select("id, content, created_at, sender_id, read_at, type, media_url")
+            .eq("conversation_id", convo.id)
+            .order("created_at", { ascending: false })
+            .limit(1);
+
+          // Get unread count efficiently
+          const { count: unreadCount } = await supabase
+            .from("messages")
+            .select("*", { count: "exact", head: true })
+            .eq("conversation_id", convo.id)
+            .is("read_at", null)
+            .neq("sender_id", user.id);
+
+          const otherParticipant = participants?.find(
+            p => p.user_id !== user.id && p.profiles
+          );
+
+          if (!otherParticipant && !convo.is_group) return null;
+
+          const otherUser = otherParticipant?.profiles;
+          const lastMessage = lastMessages?.[0];
+
+          return {
+            id: convo.id,
+            participants,
+            otherUser,
+            lastMessage,
+            lastMessageTime: convo.last_message_at || lastMessage?.created_at,
+            unreadCount: unreadCount || 0,
+            pinned: convo.pinned ?? false,
+            muted: convo.muted ?? false,
+            archived: convo.archived ?? false,
+            isGroup: convo.is_group ?? false,
+            groupName: convo.name,
+            groupAvatar: convo.avatar_url,
+          };
+        })
       );
 
-      if (!otherParticipant) return null;
+      const cleaned = conversationsWithDetails
+        .filter(Boolean)
+        .sort((a, b) => {
+          if (a.pinned !== b.pinned) return b.pinned - a.pinned;
+          return new Date(b.lastMessageTime || 0) - new Date(a.lastMessageTime || 0);
+        });
 
-      const otherUser = otherParticipant.profiles;
-
-      const messages = convo.messages || [];
-
-      const lastMessage = messages.sort(
-        (a, b) => new Date(b.created_at) - new Date(a.created_at)
-      )[0];
-
-      const unreadCount = messages.filter(
-        m => !m.read_at && m.sender_id !== user.id
-      ).length;
-
-      return {
-        id: convo.id,
-        participants,          // 👈 ADD THIS
-        otherUser,
-        lastMessage,
-        lastMessageTime: lastMessage?.created_at || null,
-        unreadCount,
-        pinned: convo.pinned ?? false,
-        muted: convo.muted ?? false,        // 👈 ADD
-        archived: convo.archived ?? false,  // 👈 ADD
-      };
-
-    })
-    .filter(Boolean)
-    .sort((a, b) => {
-      if (a.pinned !== b.pinned) return b.pinned - a.pinned;
-      return new Date(b.lastMessageTime || 0) -
-             new Date(a.lastMessageTime || 0);
-    });
-
-  setConversations(cleaned);
-}
-
-
-
-
-  /* ===================== LOAD MESSAGES ===================== */
-
-  async function loadMessages(initial = false) {
-    if (loadingRef.current) return;
-  loadingRef.current = true;
-  if (!activeConversation || !user?.id) return;
-
-  let query = supabase
-    .from("messages")
-    .select("*")
-    .eq("conversation_id", activeConversation)
-    .order("created_at", { ascending: false })
-    .limit(PAGE_SIZE);
-
-  // 🔥 cursor-based pagination
-  if (!initial && oldestTimestamp) {
-    query = query.lt("created_at", oldestTimestamp);
-  }
-
-  const { data, error } = await query;
-
-  if (error || !data) return;
-
-  if (data.length === 0) {
-    setHasMore(false);
-    return;
-  }
-
-  const reversed = [...data].reverse();
-
-  setMessages(prev =>
-    initial ? reversed : [...reversed, ...prev]
-  );
-
-  // 👇 update cursor to OLDEST loaded message
-  setOldestTimestamp(reversed[0].created_at);
-  loadingRef.current = false;
-}
-
-
-
-
-
-  /* ===================== REALTIME ===================== */
-
-  /* ===================== REALTIME (ONLY ONE) ===================== */
-
-useEffect(() => {
-  if (!activeConversation || !user?.id) return;
-
-  const msgChannel = supabase
-    .channel(`messages-${activeConversation}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        table: "messages",
-        filter: `conversation_id=eq.${activeConversation}`,
-      },
-      payload => {
-        setMessages(prev =>
-          prev.some(m => m.id === payload.new.id)
-            ? prev
-            : [...prev, payload.new]
-        );
-      }
-    )
-    .subscribe();
-
-  const typingChannel = supabase
-  .channel(`typing-${activeConversation}`)
-  .on("broadcast", { event: "typing" }, payload => {
-    const { userId, conversationId } = payload.payload;
-
-    if (userId === user.id) return;
-
-    // 🔥 SIDEBAR typing preview
-    setTypingInConversation(prev => ({
-      ...prev,
-      [conversationId]: true,
-    }));
-
-    setTimeout(() => {
-      setTypingInConversation(prev => {
-        const copy = { ...prev };
-        delete copy[conversationId];
-        return copy;
-      });
-    }, 1500);
-  })
-  .subscribe();
-
-
-  return () => {
-    supabase.removeChannel(msgChannel);
-    supabase.removeChannel(typingChannel);
-  };
-}, [activeConversation, user?.id]);
-
-useEffect(() => {
-  if (!activeConversation) return;
-
-  setMessages([]);
-  setHasMore(true);
-  setOldestTimestamp(null);
-  loadMessages(true);
-}, [activeConversation]);
-
-// ✅ MARK MESSAGES AS READ (✔✔ Seen)
-useEffect(() => {
-  if (!activeConversation || !user?.id) return;
-
-  supabase
-    .from("messages")
-    .update({ read_at: new Date().toISOString() })
-    .eq("conversation_id", activeConversation)
-    .neq("sender_id", user.id)   // not my messages
-    .is("read_at", null);        // only unread ones
-}, [activeConversation, user?.id]);
-
-
-  /* ===================== SEND MESSAGE ===================== */
-
-  async function sendMessage() {
-    if (user.is_muted && new Date(user.muted_until) > new Date()) {
-  alert("You are muted");
-  return;
-}
-
-    if (!text.trim() || !activeConversation || !activeUser) return;
-
-    const messageId = crypto.randomUUID();
-    const isSpam = /(http|https|www\.)/i.test(text);
-
-    if (!sharedKey) return;
-
-const encryptedText = encrypt(text, sharedKey);
-
-    const content = encryptedText;
-    
-
-    setMessages(prev => [
-      ...prev,
-      {
-        id: messageId,
-        content,
-        sender_id: user.id,
-        receiver_id: activeUser.id,
-        created_at: new Date().toISOString(),
-        pending: true,
-      },
-    ]);
-
-    setText("");
-
-    const { error } = await supabase.from("messages").insert({
-  id: messageId,
-  conversation_id: activeConversation,
-  sender_id: user.id,
-  receiver_id: activeUser.id,
-  content: encryptedText,
-  flagged: isSpam,
-});
-
-    if (error) {
-      setMessages(prev =>
-        prev.map(m =>
-          m.id === messageId ? { ...m, failed: true } : m
-        )
-      );
+      setConversations(cleaned);
+    } catch (error) {
+      console.error('Error fetching conversations:', error);
+    } finally {
+      setIsFetchingConversations(false);
     }
   }
-async function acceptCall() {
-  if (!incomingCall || !incomingCall.id) {
-    console.warn("acceptCall: incomingCall is null");
-    return;
+
+  /* ===================== LOAD MESSAGES ===================== */
+  async function loadMessages(initial = false, conversationId = activeConversation) {
+    if (loadingRef.current || !conversationId || !user?.id) return;
+    
+    loadingRef.current = true;
+
+    let query = supabase
+      .from("messages")
+      .select(`
+        *,
+        reactions:message_reactions(
+          emoji,
+          user_id,
+          profiles:user_id(username, avatar_url)
+        )
+      `)
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(PAGE_SIZE);
+
+    if (!initial && oldestTimestamp) {
+      query = query.lt("created_at", oldestTimestamp);
+    }
+
+    const { data, error } = await query;
+
+    if (error || !data) {
+      loadingRef.current = false;
+      return;
+    }
+
+    if (data.length === 0) {
+      setHasMore(false);
+      loadingRef.current = false;
+      return;
+    }
+
+    const reversed = [...data].reverse();
+    setMessages(prev => initial ? reversed : [...reversed, ...prev]);
+    setOldestTimestamp(reversed[0].created_at);
+    
+    // Mark messages as read in background
+    supabase
+      .from("messages")
+      .update({ read_at: new Date().toISOString() })
+      .eq("conversation_id", conversationId)
+      .neq("sender_id", user.id)
+      .is("read_at", null)
+      .then(() => {
+        // Update local unread counts
+        setConversations(prev => prev.map(c => 
+          c.id === conversationId ? { ...c, unreadCount: 0 } : c
+        ));
+      });
+
+    loadingRef.current = false;
   }
 
-  const callId = incomingCall.id;
-  const callType = incomingCall.type;
-  const offer = incomingCall.offer;
+  /* ===================== LOAD MESSAGES ON CONVERSATION CHANGE ===================== */
+  useEffect(() => {
+    if (!activeConversation) return;
 
-  setIncomingCall(null);
-  setActiveCallId(callId);
+    setMessages([]);
+    setHasMore(true);
+    setOldestTimestamp(null);
+    loadMessages(true, activeConversation);
+  }, [activeConversation]);
 
-  pcRef.current = createPeerConnection({
-    localVideoRef,
-    remoteVideoRef,
-    onIceCandidate: async (candidate) => {
-      await pushIceCandidate("callee", candidate, callId);
-    },
-  });
+  /* ===================== REALTIME SUBSCRIPTIONS ===================== */
+  useEffect(() => {
+    if (!activeConversation || !user?.id) return;
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: callType === "video",
-    audio: true,
-  });
-
-  stream.getTracks().forEach(track =>
-    pcRef.current.addTrack(track, stream)
-  );
-
-  if (offer) {
-    await pcRef.current.setRemoteDescription(
-      new RTCSessionDescription(offer)
-    );
-  }
-
-  const answer = await pcRef.current.createAnswer();
-  await pcRef.current.setLocalDescription(answer);
-
-  await supabase
-    .from("calls")
-    .update({ status: "accepted", answer })
-    .eq("id", callId);
-}
-
-
-useEffect(() => {
-  console.log("incomingCall:", incomingCall);
-}, [incomingCall]);
-
-
-useEffect(() => {
-  if (!activeCallId) return;
-
-  const channel = supabase
-    .channel("call-answer")
-    .on(
-      "postgres_changes",
-      {
-        event: "UPDATE",
-        schema: "public",
-        table: "calls",
-        filter: `id=eq.${activeCallId}`,
-      },
-      async (payload) => {
-        const call = payload.new;
-
-        if (call.answer && pcRef.current) {
-          await pcRef.current.setRemoteDescription(
-            new RTCSessionDescription(call.answer)
+    const msgChannel = supabase
+      .channel(`messages-${activeConversation}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${activeConversation}`,
+        },
+        payload => {
+          setMessages(prev =>
+            prev.some(m => m.id === payload.new.id)
+              ? prev
+              : [...prev, payload.new]
+          );
+          
+          // Update conversation list locally without refetch
+          setConversations(prev => prev.map(c => 
+            c.id === activeConversation 
+              ? { 
+                  ...c, 
+                  lastMessage: payload.new,
+                  lastMessageTime: payload.new.created_at,
+                  unreadCount: payload.new.sender_id !== user.id ? c.unreadCount + 1 : c.unreadCount
+                }
+              : c
+          ));
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${activeConversation}`,
+        },
+        payload => {
+          setMessages(prev =>
+            prev.map(m => m.id === payload.new.id ? payload.new : m)
           );
         }
-      }
-    )
-    .subscribe();
+      )
+      .subscribe();
 
-  return () => supabase.removeChannel(channel);
-}, [activeCallId]);
+    const typingChannel = supabase
+      .channel(`typing-${activeConversation}`)
+      .on("broadcast", { event: "typing" }, payload => {
+        const { userId, conversationId } = payload.payload;
+        if (userId === user.id) return;
 
+        setTypingInConversation(prev => ({
+          ...prev,
+          [conversationId]: true,
+        }));
 
+        setTimeout(() => {
+          setTypingInConversation(prev => {
+            const copy = { ...prev };
+            delete copy[conversationId];
+            return copy;
+          });
+        }, 1500);
+      })
+      .subscribe();
 
-async function rejectCall() {
-  if (!incomingCall?.id) {
-    console.warn("rejectCall: incomingCall is null");
-    return;
-  }
+    return () => {
+      supabase.removeChannel(msgChannel);
+      supabase.removeChannel(typingChannel);
+    };
+  }, [activeConversation, user?.id]);
 
-  await supabase
-    .from("calls")
-    .update({ status: "rejected" })
-    .eq("id", incomingCall.id);
+  /* ===================== CALL REALTIME ===================== */
+  useEffect(() => {
+    if (!user?.id) return;
 
-  setIncomingCall(null);
-}
+    const channel = supabase
+      .channel("incoming-calls")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "calls",
+        },
+        payload => {
+          const call = payload.new;
+          if (
+            call.status === "ringing" &&
+            call.participants?.includes(user.id) &&
+            call.caller_id !== user.id
+          ) {
+            setIncomingCall(call);
+          }
+        }
+      )
+      .subscribe();
 
+    return () => supabase.removeChannel(channel);
+  }, [user?.id]);
 
+  useEffect(() => {
+    if (!activeCallId) return;
 
+    const channel = supabase
+      .channel(`call-${activeCallId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "calls",
+          filter: `id=eq.${activeCallId}`,
+        },
+        async (payload) => {
+          const call = payload.new;
+          if (call.answer && pcRef.current) {
+            await pcRef.current.setRemoteDescription(
+              new RTCSessionDescription(call.answer)
+            );
+          }
+          if (call.status === "ended") {
+            cleanupCall();
+          }
+        }
+      )
+      .subscribe();
 
-
-
-/* ====================Reaction================== */
-  async function react(messageId, emoji) {
-  await supabase.from("message_reactions").upsert({
-    message_id: messageId,
-    user_id: user.id,
-    emoji,
-  });
-}
-
-  /* ===================== TYPING ===================== */
-
-  function handleTyping(e) {
-    setText(e.target.value);
-
-    if (!activeConversation || typingTimeout.current) return;
-
-    typingTimeout.current = setTimeout(() => {
-      typingTimeout.current = null;
-    }, 800);
-
-    supabase.channel(`typing-${activeConversation}`).send({
-      type: "broadcast",
-      event: "typing",
-      payload: {
-  userId: user.id,
-  conversationId: activeConversation
-},
-    });
-  }
-
-  /* ===================== HELPERS ===================== */
-
-  function openConversation(convo) {
-  if (!convo?.id) {
-    console.warn("Invalid conversation object", convo);
-    return;
-  }
-
-  if (!convo.otherUser) {
-    console.warn("Conversation has no otherUser", convo);
-    alert("⚠️ Cannot open this chat (user data missing)");
-    return;
-  }
-
-  setActiveConversation(convo.id);
-  setActiveUser(convo.otherUser);
-  setLastReadAt(new Date().toISOString());
-  setSidebarOpen(false);
-}
-
-
-
-  async function openOrCreateConversation(otherUser) {
-  if (!user?.id || !otherUser?.id) return null;
-
-  // 🔑 1️⃣ Always compute the SAME key for the same 2 users
-  const conversationKey = [user.id, otherUser.id].sort().join("_");
-
-  // 🔍 2️⃣ Try to find existing conversation
-  const { data: existing, error: findError } = await supabase
-    .from("conversations")
-    .select("id")
-    .eq("conversation_key", conversationKey)
-    .single();
-
-  if (existing) {
-    return existing.id; // ✅ reuse old conversation
-  }
-
-  // 🆕 3️⃣ Create conversation ONLY if not exists
-  const { data: convo, error: insertError } = await supabase
-    .from("conversations")
-    .insert({ conversation_key: conversationKey }) // 👈 THIS IS WHERE IT GOES
-    .select()
-    .single();
-
-  if (insertError) {
-    console.error("Conversation create error:", insertError);
-    return null;
-  }
-
-  // 👥 4️⃣ Insert participants ONCE
-  await supabase.from("participants").insert([
-    { conversation_id: convo.id, user_id: user.id },
-    { conversation_id: convo.id, user_id: otherUser.id },
-  ]);
-
-  return convo.id;
-}
-
-//
-
-useEffect(() => {
-  if (!activeConversation || !user?.id) return;
-
-  supabase
-    .from("messages")
-    .update({ read_at: new Date().toISOString() })
-    .eq("conversation_id", activeConversation)
-    .neq("sender_id", user.id)
-    .is("read_at", null);
-}, [activeConversation]);
-
-
-   /* ====================Reaction================== */
-
-
-//
-
-
-
+    return () => supabase.removeChannel(channel);
+  }, [activeCallId]);
 
   useEffect(() => {
     if (!activeCallId) return;
@@ -848,558 +519,1236 @@ useEffect(() => {
           const ice = payload.new.ice_candidates;
           if (!ice) return;
 
-          const remoteRole =
-            payload.new.caller_id === user.id
-              ? "callee"
-              : "caller";
+          const remoteRole = payload.new.caller_id === user.id ? "callee" : "caller";
 
           for (const candidate of ice?.[remoteRole] || []) {
-  try {
-    if (!pcRef.current) return;
-    if (!pcRef.current.remoteDescription) {
-      console.warn("ICE skipped: remoteDescription not ready");
-      return;
-    }
-    await pcRef.current.addIceCandidate(
-      new RTCIceCandidate(candidate)
-    );
-  } catch (e) {
-    console.warn("ICE add failed", e);
-  }
-}
-
+            try {
+              if (!pcRef.current?.remoteDescription) continue;
+              await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+            } catch (e) {
+              console.warn("ICE add failed", e);
+            }
+          }
         }
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => supabase.removeChannel(channel);
   }, [activeCallId, user?.id]);
 
+  /* ===================== MESSAGE ACTIONS ===================== */
+  async function sendMessage(type = "text", mediaUrl = null) {
+    if (user?.is_muted && new Date(user.muted_until) > new Date()) {
+      alert("You are muted");
+      return;
+    }
 
+    if ((type === "text" && !text.trim()) || !activeConversation || !activeUser) return;
 
-/*===================== Voice Call =====================*/
-useEffect(() => {
-  if (!activeCallId) return;
+    const messageId = crypto.randomUUID();
+    const isSpam = /(http|https|www\.)/i.test(text);
+    let content = text;
 
-  const channel = supabase
-    .channel("call-ended")
-    .on(
-      "postgres_changes",
-      {
-        event: "UPDATE",
-        schema: "public",
-        table: "calls",
-        filter: `id=eq.${activeCallId}`,
+    if (type === "text" && sharedKey) {
+      content = encrypt(text, sharedKey);
+    }
+
+    const newMessage = {
+      id: messageId,
+      conversation_id: activeConversation,
+      sender_id: user.id,
+      receiver_id: activeUser.id,
+      content,
+      type,
+      media_url: mediaUrl,
+      created_at: new Date().toISOString(),
+      pending: true,
+      reactions: []
+    };
+
+    // Optimistic update
+    setMessages(prev => [...prev, newMessage]);
+    setText("");
+
+    const { error } = await supabase.from("messages").insert({
+      ...newMessage,
+      flagged: isSpam,
+    });
+
+    if (error) {
+      setMessages(prev =>
+        prev.map(m => m.id === messageId ? { ...m, failed: true } : m)
+      );
+    } else {
+      // Update local conversation state
+      setMessages(prev =>
+        prev.map(m => m.id === messageId ? { ...m, pending: false } : m)
+      );
+      
+      setConversations(prev => prev.map(c => 
+        c.id === activeConversation 
+          ? { 
+              ...c, 
+              lastMessage: { ...newMessage, pending: false },
+              lastMessageTime: newMessage.created_at
+            }
+          : c
+      ));
+    }
+
+    // Update last message time in background
+    supabase
+      .from("conversations")
+      .update({ last_message_at: new Date().toISOString() })
+      .eq("id", activeConversation);
+  }
+
+  async function reactToMessage(messageId, emoji) {
+    const { error } = await supabase.from("message_reactions").upsert({
+      message_id: messageId,
+      user_id: user.id,
+      emoji,
+    }, { onConflict: 'message_id,user_id' });
+
+    if (!error) {
+      setMessageReactions(prev => ({
+        ...prev,
+        [messageId]: [...(prev[messageId] || []), { emoji, user_id: user.id }]
+      }));
+    }
+  }
+
+  async function deleteMessage(messageId) {
+    if (!isAdmin) return;
+
+    await supabase
+      .from("messages")
+      .update({
+        content: "⚠️ Message removed",
+        deleted_by_admin: true,
+        deleted_at: new Date().toISOString(),
+      })
+      .eq("id", messageId);
+
+    setMessages(prev =>
+      prev.map(m => m.id === messageId 
+        ? { ...m, content: "⚠️ Message removed", deleted_by_admin: true }
+        : m
+      )
+    );
+  }
+
+  /* ===================== CALL FUNCTIONS ===================== */
+  async function acceptCall() {
+    if (!incomingCall?.id) return;
+
+    const callId = incomingCall.id;
+    const callType = incomingCall.type;
+    const offer = incomingCall.offer;
+
+    setIncomingCall(null);
+    setActiveCallId(callId);
+
+    pcRef.current = createPeerConnection({
+      localVideoRef,
+      remoteVideoRef,
+      onIceCandidate: async (candidate) => {
+        await pushIceCandidate("callee", candidate, callId);
       },
-      (payload) => {
-        if (payload.new.status === "ended") {
-          cleanupCall();
-        }
-      }
-    )
-    .subscribe();
+    });
 
-  return () => supabase.removeChannel(channel);
-}, [activeCallId]);
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: callType === "video",
+      audio: true,
+    });
 
-
-
-
-
-
-
-async function startVoiceCall() {
-  const { data, error } = await supabase
-    .from("calls")
-    .insert({
-  conversation_id: activeConversation,
-  caller_id: user.id,
-  type: "voice",
-  status: "ringing",
-  participants: [user.id, activeUser.id], // 🔥 IMPORTANT
-})
-
-    .select()
-    .single();
-
-  if (error) return;
-
-  setActiveCallId(data.id);
-
-  pcRef.current = createPeerConnection({
-    localVideoRef,
-    remoteVideoRef,
-    onIceCandidate: candidate =>
-      pushIceCandidate("caller", candidate, data.id),
-  });
-
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: true,
-    video: false,
-  });
-
-  stream.getTracks().forEach(track =>
-    pcRef.current.addTrack(track, stream)
-  );
-
-  const offer = await pcRef.current.createOffer();
-  await pcRef.current.setLocalDescription(offer);
-
-  await supabase
-    .from("calls")
-    .update({ offer })
-    .eq("id", data.id);
-}
-
-
-
-
-
-async function startVideoCall(e) {
-  e?.preventDefault();
-  e?.stopPropagation();
-
-  // 1️⃣ Create call row
-  const { data, error } = await supabase
-    .from("calls")
-    .insert({
-  conversation_id: activeConversation,
-  caller_id: user.id,
-  type: "video",
-  status: "ringing",
-  participants: [user.id, activeUser.id], // 🔥 IMPORTANT
-})
-
-    .select()
-    .single();
-
-  if (error) {
-    console.error(error);
-    return;
-  }
-
-  const callId = data.id;
-  setActiveCallId(callId);
-
-  // 2️⃣ Create PeerConnection (FIXED)
-  pcRef.current = createPeerConnection({
-    localVideoRef,
-    remoteVideoRef,
-    onIceCandidate: candidate => {
-  pushIceCandidate("caller", candidate, callId);
-},
-
-  });
-
-  // 3️⃣ Media
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: true,
-    audio: true,
-  });
-
-  stream.getTracks().forEach(track =>
-    pcRef.current.addTrack(track, stream)
-  );
-console.log("pcRef.current created for callId:", callId);
-  // 4️⃣ Offer
-  const offer = await pcRef.current.createOffer();
-  await pcRef.current.setLocalDescription(offer);
-
-  // 5️⃣ Save offer
-  await supabase
-    .from("calls")
-    .update({ offer })
-    .eq("id", callId);
-}
-
-async function endCall() {
-  await supabase
-    .from("calls")
-    .update({ status: "ended" })
-    .eq("id", activeCallId);
-
-  cleanupCall();
-}
-
-function cleanupCall() {
-  if (pcRef.current) {
-    pcRef.current.close();
-    pcRef.current = null;
-  }
-
-  localVideoRef.current?.srcObject
-    ?.getTracks()
-    .forEach(t => t.stop());
-
-  if (localVideoRef.current) localVideoRef.current.srcObject = null;
-  if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-
-  setActiveCallId(null);
-}
-
-
-
-async function deleteMessage(messageId) {
-  await supabase
-    .from("messages")
-    .update({
-      content: "⚠️ Message removed by admin",
-      deleted_by_admin: true,
-      deleted_at: new Date().toISOString(),
-    })
-    .eq("id", messageId);
-}
-
-
-
-  /* ===================== AUTOSCROLL ===================== */
-
-
-
-  /* ===================== GUARDS ===================== */
-
-  if (loading) return <div>Loading…</div>;
-  if (!user) return <div>Not authenticated</div>;
-
-  if (isBanned)
-    return (
-      <div style={{ padding: 40, textAlign: "center" }}>
-        <h2>🚫 You are banned</h2>
-        {bannedUntil && <p>{new Date(bannedUntil).toLocaleString()}</p>}
-      </div>
+    stream.getTracks().forEach(track =>
+      pcRef.current.addTrack(track, stream)
     );
 
+    if (offer) {
+      await pcRef.current.setRemoteDescription(
+        new RTCSessionDescription(offer)
+      );
+    }
 
+    const answer = await pcRef.current.createAnswer();
+    await pcRef.current.setLocalDescription(answer);
 
+    await supabase
+      .from("calls")
+      .update({ status: "accepted", answer })
+      .eq("id", callId);
+  }
 
+  async function rejectCall() {
+    if (!incomingCall?.id) return;
 
-  /* ===================== UI ===================== */
+    await supabase
+      .from("calls")
+      .update({ status: "rejected" })
+      .eq("id", incomingCall.id);
 
-  return (
-    <div className="chat-app">
-      <aside className={`sidebar ${sidebarOpen ? "open" : "hidden"}`}>
-        <strong>Photogram<span style={{ fontSize: 14, opacity: 0.7 }}>Chats</span></strong>
-        <StatusUploader />
-        <UserSearch
-  onSelect={async otherUser => {
-    const convoId = await openOrCreateConversation(otherUser);
-    setActiveConversation(convoId);
-    setActiveUser(otherUser);
+    setIncomingCall(null);
+  }
+
+  async function startVoiceCall() {
+    const { data, error } = await supabase
+      .from("calls")
+      .insert({
+        conversation_id: activeConversation,
+        caller_id: user.id,
+        type: "voice",
+        status: "ringing",
+        participants: [user.id, activeUser.id],
+      })
+      .select()
+      .single();
+
+    if (error) return;
+
+    setActiveCallId(data.id);
+
+    pcRef.current = createPeerConnection({
+      localVideoRef,
+      remoteVideoRef,
+      onIceCandidate: candidate =>
+        pushIceCandidate("caller", candidate, data.id),
+    });
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: false,
+    });
+
+    stream.getTracks().forEach(track =>
+      pcRef.current.addTrack(track, stream)
+    );
+
+    const offer = await pcRef.current.createOffer();
+    await pcRef.current.setLocalDescription(offer);
+
+    await supabase
+      .from("calls")
+      .update({ offer })
+      .eq("id", data.id);
+  }
+
+  async function startVideoCall() {
+    const { data, error } = await supabase
+      .from("calls")
+      .insert({
+        conversation_id: activeConversation,
+        caller_id: user.id,
+        type: "video",
+        status: "ringing",
+        participants: [user.id, activeUser.id],
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+
+    const callId = data.id;
+    setActiveCallId(callId);
+
+    pcRef.current = createPeerConnection({
+      localVideoRef,
+      remoteVideoRef,
+      onIceCandidate: candidate => {
+        pushIceCandidate("caller", candidate, callId);
+      },
+    });
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true,
+    });
+
+    stream.getTracks().forEach(track =>
+      pcRef.current.addTrack(track, stream)
+    );
+
+    const offer = await pcRef.current.createOffer();
+    await pcRef.current.setLocalDescription(offer);
+
+    await supabase
+      .from("calls")
+      .update({ offer })
+      .eq("id", callId);
+  }
+
+  async function endCall() {
+    await supabase
+      .from("calls")
+      .update({ status: "ended" })
+      .eq("id", activeCallId);
+
+    cleanupCall();
+  }
+
+  function cleanupCall() {
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+
+    localVideoRef.current?.srcObject
+      ?.getTracks()
+      .forEach(t => t.stop());
+
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+
+    setActiveCallId(null);
+  }
+
+  /* ===================== CONVERSATION MANAGEMENT ===================== */
+  async function openOrCreateConversation(otherUser) {
+    if (!user?.id || !otherUser?.id) return null;
+
+    const conversationKey = [user.id, otherUser.id].sort().join("_");
+
+    const { data: existing, error: findError } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("conversation_key", conversationKey)
+      .single();
+
+    if (existing) return existing.id;
+
+    const { data: convo, error: insertError } = await supabase
+      .from("conversations")
+      .insert({ conversation_key: conversationKey })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error("Conversation create error:", insertError);
+      return null;
+    }
+
+    await supabase.from("participants").insert([
+      { conversation_id: convo.id, user_id: user.id, role: "admin", joined_at: new Date() },
+      { conversation_id: convo.id, user_id: otherUser.id, role: "member", joined_at: new Date() },
+    ]);
+
+    // Add to conversations list optimistically
+    const newConvo = {
+      id: convo.id,
+      participants: [
+        { user_id: user.id, profiles: user },
+        { user_id: otherUser.id, profiles: otherUser }
+      ],
+      otherUser,
+      lastMessage: null,
+      lastMessageTime: null,
+      unreadCount: 0,
+      pinned: false,
+      muted: false,
+      archived: false,
+      isGroup: false
+    };
+
+    setConversations(prev => [newConvo, ...prev]);
+
+    return convo.id;
+  }
+
+  function openConversation(convo) {
+    if (!convo?.id || !convo.otherUser) {
+      console.warn("Invalid conversation object", convo);
+      return;
+    }
+
+    setActiveConversation(convo.id);
+    setActiveUser(convo.otherUser);
+    setLastReadAt(new Date().toISOString());
     setSidebarOpen(false);
-  }}
-/><button
-  className="theme-toggle"
-  onClick={() => {
-    const themes = ["dark", "blue", "purple"];
-    const current = document.body.dataset.theme || "dark";
-    const next = themes[(themes.indexOf(current) + 1) % themes.length];
-    document.body.dataset.theme = next;
-  }}
->
-  🎨
-</button>
-<input
-  className="sidebar-search"
-  placeholder="Search chats"
-  value={search}
-  onChange={e => setSearch(e.target.value)}
-/>
+  }
 
+  async function createGroup(name, members) {
+    const { data: convo } = await supabase
+      .from("conversations")
+      .insert({ is_group: true, name })
+      .select()
+      .single();
 
-<div className="conversation-list">
-  {conversations
-  .filter(
-    c =>
-      !c.archived &&
-      c.otherUser.username
-        .toLowerCase()
-        .includes(search.toLowerCase())
-  )
-  .map(convo => {
-    const isGroup = convo.participants.length > 2;
+    await supabase.from("participants").insert([
+      { conversation_id: convo.id, user_id: user.id, role: "admin", joined_at: new Date() },
+      ...members.map(u => ({
+        conversation_id: convo.id,
+        user_id: u.id,
+        role: "member",
+        joined_at: new Date(),
+      })),
+    ]);
+
+    fetchConversations();
+  }
+
+  async function updateChatSettings(conversationId, settings) {
+    await supabase
+      .from("conversations")
+      .update(settings)
+      .eq("id", conversationId);
+
+    setConversations(prev => prev.map(c => 
+      c.id === conversationId ? { ...c, ...settings } : c
+    ));
+  }
+
+  /* ===================== TYPING HANDLER ===================== */
+  function handleTyping(e) {
+    setText(e.target.value);
+
+    if (!activeConversation || typingTimeout.current) return;
+
+    typingTimeout.current = setTimeout(() => {
+      typingTimeout.current = null;
+    }, 800);
+
+    supabase.channel(`typing-${activeConversation}`).send({
+      type: "broadcast",
+      event: "typing",
+      payload: {
+        userId: user.id,
+        conversationId: activeConversation
+      },
+    });
+  }
+
+  /* ===================== MEDIA UPLOAD ===================== */
+  async function handleFileUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${crypto.randomUUID()}.${fileExt}`;
+    const filePath = `${user.id}/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('chat-media')
+      .upload(filePath, file);
+
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      return;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('chat-media')
+      .getPublicUrl(filePath);
+
+    const type = file.type.startsWith('image/') ? 'image' : 'file';
+    await sendMessage(type, publicUrl);
+  }
+
+  /* ===================== STORIES ===================== */
+  async function fetchUserStories(userId) {
+    const { data, error } = await supabase
+      .from('stories')
+      .select('*')
+      .eq('user_id', userId)
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: true });
+
+    if (!error) {
+      setUserStories(data || []);
+    }
+  }
+
+  async function uploadStory(file) {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${crypto.randomUUID()}.${fileExt}`;
+    const filePath = `stories/${user.id}/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('stories')
+      .upload(filePath, file);
+
+    if (uploadError) {
+      console.error('Story upload error:', uploadError);
+      return;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('stories')
+      .getPublicUrl(filePath);
+
+    const { error: insertError } = await supabase
+      .from('stories')
+      .insert({
+        user_id: user.id,
+        media_url: publicUrl,
+        type: file.type.startsWith('image/') ? 'image' : 'video',
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+      });
+
+    if (insertError) {
+      console.error('Story insert error:', insertError);
+    }
+  }
+
+  function viewStory(userId) {
+    setStoryViewer(userId);
+    setShowStoryViewer(true);
+    setCurrentStoryIndex(0);
+    fetchUserStories(userId);
+  }
+
+  /* ===================== VOICE NOTES ===================== */
+  async function startVoiceRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      const audioChunks = [];
+
+      mediaRecorder.ondataavailable = event => {
+        audioChunks.push(event.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        if (voiceTimerRef.current) {
+          clearInterval(voiceTimerRef.current);
+          voiceTimerRef.current = null;
+        }
+
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        const fileName = `${crypto.randomUUID()}.webm`;
+        const filePath = `voice-notes/${user.id}/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('chat-media')
+          .upload(filePath, audioBlob);
+
+        if (!uploadError) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('chat-media')
+            .getPublicUrl(filePath);
+
+          await sendMessage('voice', publicUrl);
+        }
+
+        stream.getTracks().forEach(track => track.stop());
+        setIsRecording(false);
+        setRecordingTime(0);
+      };
+
+      voiceRecorderRef.current = mediaRecorder;
+      mediaRecorder.start();
+      setIsRecording(true);
+
+      const startTime = Date.now();
+      voiceTimerRef.current = setInterval(() => {
+        setRecordingTime(Math.floor((Date.now() - startTime) / 1000));
+      }, 1000);
+
+      setTimeout(() => {
+        if (mediaRecorder.state === 'recording') {
+          mediaRecorder.stop();
+        }
+      }, 60000);
+
+    } catch (error) {
+      console.error('Voice recording error:', error);
+    }
+  }
+
+  function stopVoiceRecording() {
+    if (voiceRecorderRef.current?.state === 'recording') {
+      voiceRecorderRef.current.stop();
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (voiceTimerRef.current) {
+        clearInterval(voiceTimerRef.current);
+      }
+    };
+  }, []);
+
+  /* ===================== MESSAGE SELECTION ===================== */
+  function toggleMessageSelection(messageId) {
+    setSelectedMessages(prev => {
+      if (prev.includes(messageId)) {
+        return prev.filter(id => id !== messageId);
+      } else {
+        return [...prev, messageId];
+      }
+    });
+  }
+
+  function clearSelection() {
+    setSelectedMessages([]);
+    setIsSelectionMode(false);
+  }
+
+  async function deleteSelectedMessages() {
+    if (!isAdmin) return;
+
+    for (const messageId of selectedMessages) {
+      await deleteMessage(messageId);
+    }
+    clearSelection();
+  }
+
+  /* ===================== CLICK OUTSIDE HANDLER ===================== */
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target)) {
+        setShowEmojiPicker(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  /* ===================== RENDER MESSAGE ===================== */
+  const MessageRow = useCallback(({ message, isMe, showDate, showNewDivider }) => {
+    const decryptedContent = useMemo(() => {
+      if (message.type === 'text' && message.content && !message.deleted_by_admin) {
+        return decrypt(message.content, sharedKey);
+      }
+      return message.content;
+    }, [message, sharedKey]);
+
+    const reactions = messageReactions[message.id] || [];
 
     return (
-      <div
-        key={convo.id}
-        className={`conversation-item ${
-          activeConversation === convo.id ? "active" : ""
-        }`}
-        onClick={() => openConversation(convo)}
+      <div 
+        key={message.id} 
+        className={`msg ${isMe ? 'right' : 'left'} ${selectedMessages.includes(message.id) ? 'selected' : ''}`}
+        onClick={() => isSelectionMode && toggleMessageSelection(message.id)}
+        onDoubleClick={() => !isSelectionMode && setReplyTo(message)}
       >
-        <div className="avatar-wrapper">
-          {isGroup ? (
-            <div className="group-avatar">
-              {convo.participants.slice(0, 3).map(p => (
-                <img
-                  key={p.user_id}
-                  src={p.profiles.avatar_url || "/avatar.png"}
-                />
+        {showDate && (
+          <div className="date-separator">
+            {getDateLabel(message.created_at)}
+          </div>
+        )}
+
+        {showNewDivider && (
+          <div className="new-messages">New messages</div>
+        )}
+
+        <div className="message-content">
+          {message.type === 'text' && (
+            <span>{message.deleted_by_admin ? message.content : decryptedContent}</span>
+          )}
+
+          {message.type === 'image' && (
+            <img 
+              src={message.media_url} 
+              alt="Shared image" 
+              className="message-image"
+              onClick={() => window.open(message.media_url, '_blank')}
+            />
+          )}
+
+          {message.type === 'voice' && (
+            <audio controls src={message.media_url} className="voice-note" />
+          )}
+
+          {message.type === 'file' && (
+            <a href={message.media_url} target="_blank" rel="noopener noreferrer" className="file-attachment">
+              📎 Download file
+            </a>
+          )}
+
+          {reactions.length > 0 && (
+            <div className="message-reactions">
+              {reactions.map((r, i) => (
+                <span key={i} className="reaction-emoji" title={r.username}>
+                  {r.emoji}
+                </span>
               ))}
             </div>
-          ) : (
-            <>
-              <img
-                className="avatar"
-                src={convo.otherUser.avatar_url || "/avatar.png"}
-              />
-              {onlineUsers[convo.otherUser.id] && (
-                <span className="online-dot" />
-              )}
-            </>
           )}
         </div>
 
-        <button
-          className="pin-btn"
-          onClick={e => {
-            e.stopPropagation();
-            pinChat(convo.id);
-          }}
-        >
-          📌
-        </button>
+        <div className="message-footer">
+          {!isMe && message.sender_id && (
+            <span className="sender-name">{message.sender_name}</span>
+          )}
+          <span className="time">
+            {isMe && (message.pending ? '⏳ ' : message.read_at ? '✔✔ ' : '✔ ')}
+            {new Date(message.created_at).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </span>
+        </div>
 
-        {convo.muted && <span className="muted">🔕</span>}
+        {isSelectionMode && (
+          <input 
+            type="checkbox" 
+            className="message-select"
+            checked={selectedMessages.includes(message.id)}
+            onChange={() => toggleMessageSelection(message.id)}
+          />
+        )}
+      </div>
+    );
+  }, [sharedKey, messageReactions, isSelectionMode, selectedMessages]);
 
-        <div className="chat-meta">
-          <div className="row">
-            <span className="name">{convo.otherUser.username}</span>
-            <span className="time">
-              {convo.lastMessageTime &&
-                new Date(convo.lastMessageTime).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-            </span>
-          </div>
+  /* ===================== GUARDS ===================== */
+  if (loading) return <div className="loading-screen">Loading Photogram...</div>;
+  if (!user) return <div className="error-screen">Not authenticated</div>;
 
-          <div className="row">
-            <span className="preview">
-              {typingInConversation[convo.id]
-                ? "typing…"
-                : convo.lastMessage
-                ? "🔒 Encrypted message"
-                : "No messages"}
-            </span>
-
-            {convo.unreadCount > 0 && (
-              <span className="unread-badge">
-                {convo.unreadCount}
-              </span>
-            )}
-          </div>
+  if (isBanned) {
+    return (
+      <div className="banned-screen">
+        <div className="banned-content">
+          <h2>🚫 You have been banned</h2>
+          {bannedUntil ? (
+            <p>Banned until: {new Date(bannedUntil).toLocaleString()}</p>
+          ) : (
+            <p>This ban is permanent</p>
+          )}
+          <button onClick={() => supabase.auth.signOut()} className="logout-btn">
+            Sign Out
+          </button>
         </div>
       </div>
     );
-})}
-  </div>
+  }
 
+  /* ===================== UI RENDER ===================== */
+  return (
+    <div className="chat-app">
+      {/* SIDEBAR */}
+      <aside className={`sidebar ${sidebarOpen ? 'open' : 'hidden'}`}>
+        <div className="sidebar-header">
+          <div className="sidebar-header-left">
+            <img src="/photogram-logo.png" alt="Photogram" className="sidebar-logo" />
+            <strong>Photogram</strong>
+          </div>
+          <div className="sidebar-header-right">
+            <button className="theme-toggle" onClick={() => {
+              const themes = ['dark', 'light', 'blue', 'purple', 'instagram'];
+              const current = document.body.dataset.theme || 'dark';
+              const next = themes[(themes.indexOf(current) + 1) % themes.length];
+              document.body.dataset.theme = next;
+            }}>
+              🎨
+            </button>
+            <button className="close-sidebar" onClick={() => setSidebarOpen(false)}>✕</button>
+          </div>
+        </div>
 
+        <div className="sidebar-search-container">
+          <input
+            className="sidebar-search"
+            placeholder="Search or start new chat"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
 
+        <div className="sidebar-tabs">
+          <button className="tab active">Chats</button>
+          <button className="tab">Status</button>
+          <button className="tab">Calls</button>
+          <button className="tab">Archive</button>
+        </div>
+
+        <StatusUploader onStoryUpload={uploadStory} />
+
+        <UserSearch
+          onSelect={async otherUser => {
+            const convoId = await openOrCreateConversation(otherUser);
+            setActiveConversation(convoId);
+            setActiveUser(otherUser);
+            setSidebarOpen(false);
+          }}
+        />
+
+        <div className="conversation-list">
+          {conversations
+            .filter(c => !c.archived || search)
+            .filter(c => c.otherUser?.username?.toLowerCase().includes(search.toLowerCase()) || 
+                        c.groupName?.toLowerCase().includes(search.toLowerCase()))
+            .map(convo => {
+              const isGroup = convo.isGroup;
+              const name = isGroup ? convo.groupName : convo.otherUser?.username;
+              const avatar = isGroup ? convo.groupAvatar : convo.otherUser?.avatar_url;
+              const isOnline = !isGroup && onlineUsers[convo.otherUser?.id];
+              const isTyping = typingInConversation[convo.id];
+
+              return (
+                <div
+                  key={convo.id}
+                  className={`conversation-item ${activeConversation === convo.id ? 'active' : ''} ${convo.pinned ? 'pinned' : ''}`}
+                  onClick={() => openConversation(convo)}
+                >
+                  <div className="avatar-wrapper" onClick={(e) => {
+                    e.stopPropagation();
+                    if (!isGroup && convo.otherUser) {
+                      viewStory(convo.otherUser.id);
+                    }
+                  }}>
+                    {isGroup ? (
+                      <div className="group-avatar">
+                        {convo.participants?.slice(0, 3).map(p => (
+                          <img
+                            key={p.user_id}
+                            src={p.profiles?.avatar_url || '/default-avatar.png'}
+                            alt=""
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        <img
+                          className="avatar"
+                          src={avatar || '/default-avatar.png'}
+                          alt={name}
+                        />
+                        {isOnline && <span className="online-dot" />}
+                      </>
+                    )}
+                    {convo.unreadCount > 0 && (
+                      <span className="unread-badge">{convo.unreadCount}</span>
+                    )}
+                  </div>
+
+                  <div className="chat-info">
+                    <div className="chat-header-row">
+                      <span className="name">{name}</span>
+                      <span className="time">
+                        {convo.lastMessageTime &&
+                          new Date(convo.lastMessageTime).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                      </span>
+                    </div>
+
+                    <div className="chat-preview-row">
+                      <span className="preview">
+                        {isTyping ? (
+                          <span className="typing-text">typing...</span>
+                        ) : convo.lastMessage ? (
+                          convo.lastMessage.type === 'text' 
+                            ? '💬 Message' 
+                            : convo.lastMessage.type === 'image'
+                              ? '📷 Photo'
+                              : convo.lastMessage.type === 'voice'
+                                ? '🎤 Voice message'
+                                : '📎 File'
+                        ) : (
+                          'No messages yet'
+                        )}
+                      </span>
+
+                      {convo.muted && <span className="muted-icon">🔕</span>}
+                      {convo.pinned && <span className="pinned-icon">📌</span>}
+                    </div>
+                  </div>
+
+                  <button
+                    className="conversation-menu"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveProfile(convo);
+                      setShowProfileSidebar(true);
+                    }}
+                  >
+                    ⋮
+                  </button>
+                </div>
+              );
+            })}
+        </div>
       </aside>
 
-
+      {/* MAIN CHAT WINDOW */}
       <main className="chat-window">
         {!activeConversation ? (
           <div className="empty-chat">
-            <h2>💬 Start a conversation</h2>
-            <p>Select a user from the left</p>
+            <div className="empty-chat-content">
+              <img src="/photogram-logo-large.png" alt="Photogram" className="empty-logo" />
+              <h2>Welcome to Photogram</h2>
+              <p>Select a chat to start messaging</p>
+              <button className="new-chat-btn" onClick={() => setSidebarOpen(true)}>
+                Start new chat
+              </button>
+            </div>
           </div>
         ) : (
           <>
-          {/* 🔝 CHAT HEADER */}
-  <div className="chat-header">
-    <button
-  className="mobile-menu"
-  onClick={() => setSidebarOpen(true)}
->
-  ☰
-</button>
+            {/* CHAT HEADER */}
+            <div className="chat-header">
+              <button className="mobile-menu" onClick={() => setSidebarOpen(true)}>
+                ☰
+              </button>
 
-    <button
-  className="mobile-back"
-  onClick={() => {
-    setActiveConversation(null);
-    setActiveUser(null);
-  }}
->
-  ←
-</button>
+              <button
+                className="mobile-back"
+                onClick={() => {
+                  setActiveConversation(null);
+                  setActiveUser(null);
+                  setMessages([]);
+                }}
+              >
+                ←
+              </button>
 
-    <div className="chat-header-user">
-      <img
-        src={activeUser?.avatar_url || "/avatar.png"}
-        alt=""
-        width={36}
-        height={36}
-      />
-      <div>
-        <div className="username">{activeUser?.username}</div>
-        {onlineUsers[activeUser?.id] && (
-          <div className="status">online</div>
-        )}
-      </div>
-    </div>
-<input
-  placeholder="Search messages..."
-  onChange={e => searchMessages(e.target.value)}
-/>
+              <div className="chat-header-user" onClick={() => setShowProfileSidebar(true)}>
+                <img
+                  src={activeUser?.avatar_url || '/default-avatar.png'}
+                  alt={activeUser?.username}
+                  className="chat-header-avatar"
+                />
+                <div>
+                  <div className="username">{activeUser?.username}</div>
+                  {onlineUsers[activeUser?.id] && (
+                    <div className="status">online</div>
+                  )}
+                </div>
+              </div>
 
-    <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
-      {/* 📞 Optional voice */}
-      <button
-  type="button"
-  onClick={(e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    startVoiceCall();
-  }}
->
-  📞
-</button>
-
-
-      {/* 📹 VIDEO CALL */}
-      <button onClick={startVideoCall}>📹</button>
-    </div>
-  </div>
-            <div
-  className="messages"
-  onScroll={e => {
-    if (e.target.scrollTop === 0 && hasMore) {
-      loadMessages(false);
-    }
-  }}
->
-  {(() => {
-    let lastDate = null;
-    let newDividerShown = false;
-
-    return messages.map(msg => {
-      const msgDate = new Date(msg.created_at).toDateString();
-      const showDate = msgDate !== lastDate;
-      lastDate = msgDate;
-
-      const isMe = msg.sender_id === user.id;
-
-      const showNewDivider =
-        lastReadAt &&
-        !isMe &&
-        !newDividerShown &&
-        new Date(msg.created_at) > new Date(lastReadAt);
-
-      if (showNewDivider) newDividerShown = true;
-
-      return (
-        <div key={msg.id} className={`msg ${isMe ? "right" : "left"}`}>
-          
-          {showDate && (
-            <div className="date-separator">
-              {getDateLabel(msg.created_at)}
-            </div>
-          )}
-
-          {showNewDivider && (
-            <div className="new-messages">New messages</div>
-          )}
-
-          {/* 💬 MESSAGE BUBBLE */}
-          <div onDoubleClick={() => react(msg.id, "❤️")}>
-            <div
-              onMouseDown={() => onPress(msg)}
-              onTouchStart={() => onPress(msg)}
-              style={{ display: "flex", alignItems: "center", gap: 6 }}
-            >
-              <span>
-                {(() => {
-                  try {
-                    if (!sharedKey) return "🔒 Encrypted message";
-                    return decrypt(msg.content, sharedKey);
-                  } catch {
-                    return "🔒 Encrypted message";
-                  }
-                })()}
-              </span>
-
-              {isAdmin && (
-                <button
-                  onClick={() => deleteMessage(msg.id)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    fontSize: 12,
-                    color: "red",
-                  }}
-                >
-                  🗑
+              <div className="chat-header-actions">
+                <button className="search-btn" title="Search messages" disabled>
+                  🔍
                 </button>
-              )}
+                <button className="voice-call-btn" onClick={startVoiceCall} title="Voice call">
+                  📞
+                </button>
+                <button className="video-call-btn" onClick={startVideoCall} title="Video call">
+                  📹
+                </button>
+                <button 
+                  className="menu-btn" 
+                  onClick={() => setShowProfileSidebar(true)}
+                  title="Chat info"
+                >
+                  ⋮
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div className="time">
-            {isMe && (msg.pending ? "⏳ " : msg.read_at ? "✔✔ " : "✔ ")}
-            {new Date(msg.created_at).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </div>
-        </div>
-      );
-    });
-  })()}
+            {/* MESSAGES */}
+            <div
+              className="messages"
+              onScroll={e => {
+                if (e.target.scrollTop === 0 && hasMore) {
+                  loadMessages(false);
+                }
+              }}
+            >
+              {(() => {
+                let lastDate = null;
+                let newDividerShown = false;
 
-  <div ref={messagesEndRef} />
-</div>
+                return messages.map(msg => {
+                  const msgDate = new Date(msg.created_at).toDateString();
+                  const showDate = msgDate !== lastDate;
+                  lastDate = msgDate;
 
+                  const isMe = msg.sender_id === user.id;
+                  const showNewDivider = lastReadAt &&
+                    !isMe &&
+                    !newDividerShown &&
+                    new Date(msg.created_at) > new Date(lastReadAt);
 
-            {typingUserId && <div className="typing-indicator">
-    <span></span>
-    <span></span>
-    <span></span>
-  </div>}{replyTo && (
-  <div className="reply-preview">
-    <span>Replying to:</span>
-    <p>
-      {decrypt(replyTo.content, sharedKey)}
-    </p>
-    <button onClick={() => setReplyTo(null)}>✕</button>
-  </div>
-)}
+                  if (showNewDivider) newDividerShown = true;
 
+                  return (
+                    <MessageRow
+                      key={msg.id}
+                      message={msg}
+                      isMe={isMe}
+                      showDate={showDate}
+                      showNewDivider={showNewDivider}
+                    />
+                  );
+                });
+              })()}
 
-
-            <div className="chat-input">
-              <input value={text} onChange={handleTyping} />
-              <button onClick={sendMessage}>➤</button>
-              <button onClick={startVideoCall}>📹</button>
-
+              <div ref={messagesEndRef} />
             </div>
+
+            {/* TYPING INDICATOR */}
+            {typingInConversation[activeConversation] && (
+              <div className="typing-indicator">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+            )}
+
+            {/* REPLY PREVIEW */}
+            {replyTo && (
+              <div className="reply-preview">
+                <div className="reply-content">
+                  <span className="replying-to">Replying to</span>
+                  <p className="reply-text">
+                    {replyTo.type === 'text' 
+                      ? decrypt(replyTo.content, sharedKey)
+                      : replyTo.type === 'image' 
+                        ? '📷 Photo'
+                        : replyTo.type === 'voice'
+                          ? '🎤 Voice message'
+                          : '📎 File'
+                    }
+                  </p>
+                </div>
+                <button className="close-reply" onClick={() => setReplyTo(null)}>✕</button>
+              </div>
+            )}
+
+            {/* CHAT INPUT */}
+            <div className="chat-input-container">
+              <div className="chat-input-actions">
+                <button className="emoji-btn" onClick={() => setShowEmojiPicker(!showEmojiPicker)}>
+                  😊
+                </button>
+                <button className="attach-btn" onClick={() => fileInputRef.current?.click()}>
+                  📎
+                </button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  style={{ display: 'none' }}
+                  onChange={handleFileUpload}
+                  accept="image/*,video/*,.pdf,.doc,.docx"
+                />
+                {!isRecording ? (
+                  <button className="voice-btn" onClick={startVoiceRecording}>
+                    🎤
+                  </button>
+                ) : (
+                  <button className="voice-btn recording" onClick={stopVoiceRecording}>
+                    ⏹️ {recordingTime}s
+                  </button>
+                )}
+              </div>
+
+              <input
+                className="chat-input"
+                value={text}
+                onChange={handleTyping}
+                onKeyPress={e => e.key === 'Enter' && sendMessage()}
+                placeholder="Type a message..."
+              />
+
+              <button 
+                className="send-btn"
+                onClick={() => sendMessage()}
+                disabled={!text.trim()}
+              >
+                ➤
+              </button>
+            </div>
+
+            {/* EMOJI PICKER */}
+            {showEmojiPicker && (
+              <div className="emoji-picker" ref={emojiPickerRef}>
+                {['😊', '😂', '❤️', '👍', '😢', '🔥', '🎉', '😍'].map(emoji => (
+                  <button
+                    key={emoji}
+                    onClick={() => {
+                      setText(prev => prev + emoji);
+                      setShowEmojiPicker(false);
+                    }}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         )}
-      </main>{incomingCall?.id && (
-  <div style={{
-      position: "fixed",
-      inset: 0,
-      background: "rgba(255,0,0,0.8)",
-      zIndex: 99999,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      color: "#fff",
-      fontSize: 24,
-    }}>
-    <h2>Incoming {incomingCall.type} call</h2>
-    <button onClick={acceptCall}>Accept</button>
-    <button onClick={rejectCall}>Reject</button>
-  </div>
-)}
+      </main>
 
+      {/* PROFILE SIDEBAR */}
+      {showProfileSidebar && activeUser && (
+        <div className="profile-sidebar">
+          <div className="profile-header">
+            <h3>Chat Info</h3>
+            <button onClick={() => setShowProfileSidebar(false)}>✕</button>
+          </div>
 
+          <div className="profile-content">
+            <img
+              src={activeUser?.avatar_url || '/default-avatar.png'}
+              alt={activeUser?.username}
+              className="profile-avatar-large"
+            />
 
+            <h2 className="profile-name">{activeUser?.username}</h2>
+            {activeUser?.bio && <p className="profile-bio">{activeUser.bio}</p>}
+
+            <div className="profile-stats">
+              <div className="stat">
+                <span className="stat-value">{messages.length}</span>
+                <span className="stat-label">Messages</span>
+              </div>
+              <div className="stat">
+                <span className="stat-value">
+                  {onlineUsers[activeUser?.id] ? 'Online' : 'Offline'}
+                </span>
+                <span className="stat-label">Status</span>
+              </div>
+            </div>
+
+            <div className="profile-actions">
+              <button className="profile-action" onClick={startVoiceCall}>
+                📞 Voice Call
+              </button>
+              <button className="profile-action" onClick={startVideoCall}>
+                📹 Video Call
+              </button>
+              <button className="profile-action" onClick={() => viewStory(activeUser?.id)}>
+                📸 View Story
+              </button>
+            </div>
+
+            <div className="chat-settings">
+              <h4>Chat Settings</h4>
+              
+              <label className="setting-item">
+                <span>Mute notifications</span>
+                <input
+                  type="checkbox"
+                  checked={chatSettings.mute}
+                  onChange={e => updateChatSettings(activeConversation, { muted: e.target.checked })}
+                />
+              </label>
+
+              <label className="setting-item">
+                <span>Pin chat</span>
+                <input
+                  type="checkbox"
+                  checked={chatSettings.pin}
+                  onChange={e => updateChatSettings(activeConversation, { pinned: e.target.checked })}
+                />
+              </label>
+
+              <label className="setting-item">
+                <span>Archive chat</span>
+                <input
+                  type="checkbox"
+                  checked={chatSettings.archive}
+                  onChange={e => updateChatSettings(activeConversation, { archived: e.target.checked })}
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INCOMING CALL OVERLAY */}
+      {incomingCall && (
+        <div className="call-overlay">
+          <div className="call-card">
+            <div className="call-header">
+              <img
+                src={activeUser?.avatar_url || '/default-avatar.png'}
+                alt="Caller"
+                className="caller-avatar"
+              />
+              <h2>Incoming {incomingCall.type} call</h2>
+              <p>from {activeUser?.username}</p>
+            </div>
+            <div className="call-actions">
+              <button className="accept-call" onClick={acceptCall}>
+                Accept
+              </button>
+              <button className="reject-call" onClick={rejectCall}>
+                Decline
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ACTIVE CALL UI */}
+      {activeCallId && (
+        <div className="active-call">
+          <div className="video-container">
+            <video ref={localVideoRef} autoPlay muted playsInline className="local-video" />
+            <video ref={remoteVideoRef} autoPlay playsInline className="remote-video" />
+          </div>
+          <button className="end-call" onClick={endCall}>
+            End Call
+          </button>
+        </div>
+      )}
+
+      {/* STORY VIEWER */}
+      {showStoryViewer && userStories.length > 0 && (
+        <div className="story-viewer">
+          <button className="close-story" onClick={() => setShowStoryViewer(false)}>
+            ✕
+          </button>
+          
+          <div className="story-container">
+            <div className="story-progress">
+              {userStories.map((_, index) => (
+                <div
+                  key={index}
+                  className={`progress-bar ${index === currentStoryIndex ? 'active' : ''} ${index < currentStoryIndex ? 'viewed' : ''}`}
+                />
+              ))}
+            </div>
+
+            <div className="story-content">
+              {userStories[currentStoryIndex]?.type === 'image' ? (
+                <img
+                  src={userStories[currentStoryIndex].media_url}
+                  alt="Story"
+                  className="story-media"
+                />
+              ) : (
+                <video
+                  src={userStories[currentStoryIndex].media_url}
+                  autoPlay
+                  loop
+                  className="story-media"
+                />
+              )}
+            </div>
+
+            <button
+              className="story-prev"
+              onClick={() => setCurrentStoryIndex(prev => Math.max(0, prev - 1))}
+              disabled={currentStoryIndex === 0}
+            >
+              ‹
+            </button>
+            <button
+              className="story-next"
+              onClick={() => setCurrentStoryIndex(prev => Math.min(userStories.length - 1, prev + 1))}
+              disabled={currentStoryIndex === userStories.length - 1}
+            >
+              ›
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* SELECTION MODE BAR */}
+      {isSelectionMode && (
+        <div className="selection-bar">
+          <span>{selectedMessages.length} selected</span>
+          <button onClick={clearSelection}>Cancel</button>
+          {isAdmin && (
+            <button onClick={deleteSelectedMessages} className="delete-selected">
+              Delete
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
