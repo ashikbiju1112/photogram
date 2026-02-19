@@ -88,6 +88,11 @@ export default function ChatLayout() {
   const [lastReadAt, setLastReadAt] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null);
   const [activeCallId, setActiveCallId] = useState(null);
+  const [callType, setCallType] = useState(null);
+  const [callStatus, setCallStatus] = useState(null);
+  const [callDuration, setCallDuration] = useState("00:00");
+  const [isMuted, setIsMuted] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [messageReactions, setMessageReactions] = useState({});
   const [selectedMessages, setSelectedMessages] = useState([]);
@@ -121,6 +126,7 @@ export default function ChatLayout() {
   const voiceTimerRef = useRef(null);
   const emojiPickerRef = useRef(null);
   const storyTimerRef = useRef(null);
+  const callTimerRef = useRef(null);
 
   /* ===================== ENCRYPTION KEY - Deterministic ===================== */
   const sharedKey = useMemo(() => {
@@ -264,11 +270,31 @@ export default function ChatLayout() {
           const otherUser = otherParticipant?.profiles;
           const lastMessage = lastMessages?.[0];
 
+          // Decrypt last message preview if it's text
+          let messagePreview = '';
+          if (lastMessage) {
+            if (lastMessage.type === 'text') {
+              const previewKey = useMemo(() => {
+                if (!activeConversation || !user?.id || !otherUser?.id) return null;
+                const sortedIds = [user.id, otherUser.id].sort().join('_');
+                const material = `${convo.id}_${sortedIds}`;
+                return nacl.hash(new TextEncoder().encode(material)).slice(0, 32);
+              }, [convo.id, user?.id, otherUser?.id]);
+              
+              messagePreview = decrypt(lastMessage.content, previewKey) || '💬 Message';
+            } else {
+              messagePreview = lastMessage.type === 'image' ? '📷 Photo' :
+                              lastMessage.type === 'voice' ? '🎤 Voice message' :
+                              '📎 File';
+            }
+          }
+
           return {
             id: convo.id,
             participants,
             otherUser,
             lastMessage,
+            lastMessagePreview: messagePreview,
             lastMessageTime: convo.last_message_at || lastMessage?.created_at,
             unreadCount: unreadCount || 0,
             pinned: convo.pinned ?? false,
@@ -306,6 +332,7 @@ export default function ChatLayout() {
       .from("messages")
       .select(`
         *,
+        sender:sender_id(username, avatar_url),
         reactions:message_reactions(
           emoji,
           user_id,
@@ -462,6 +489,7 @@ export default function ChatLayout() {
             call.caller_id !== user.id
           ) {
             setIncomingCall(call);
+            setCallType(call.type);
           }
         }
       )
@@ -489,6 +517,7 @@ export default function ChatLayout() {
             await pcRef.current.setRemoteDescription(
               new RTCSessionDescription(call.answer)
             );
+            setCallStatus("connected");
           }
           if (call.status === "ended") {
             cleanupCall();
@@ -536,6 +565,17 @@ export default function ChatLayout() {
     return () => supabase.removeChannel(channel);
   }, [activeCallId, user?.id]);
 
+  /* ===================== CALL DURATION TIMER ===================== */
+  const startCallTimer = useCallback(() => {
+    const startTime = Date.now();
+    callTimerRef.current = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const minutes = Math.floor(elapsed / 60);
+      const seconds = elapsed % 60;
+      setCallDuration(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+    }, 1000);
+  }, []);
+
   /* ===================== MESSAGE ACTIONS ===================== */
   async function sendMessage(type = "text", mediaUrl = null) {
     if (user?.is_muted && new Date(user.muted_until) > new Date()) {
@@ -563,7 +603,11 @@ export default function ChatLayout() {
       media_url: mediaUrl,
       created_at: new Date().toISOString(),
       pending: true,
-      reactions: []
+      reactions: [],
+      sender: {
+        username: user.username,
+        avatar_url: user.avatar_url
+      }
     };
 
     // Optimistic update
@@ -590,7 +634,10 @@ export default function ChatLayout() {
           ? { 
               ...c, 
               lastMessage: { ...newMessage, pending: false },
-              lastMessageTime: newMessage.created_at
+              lastMessageTime: newMessage.created_at,
+              lastMessagePreview: type === 'text' ? text : 
+                                type === 'image' ? '📷 Photo' :
+                                type === 'voice' ? '🎤 Voice message' : '📎 File'
             }
           : c
       ));
@@ -638,16 +685,21 @@ export default function ChatLayout() {
     );
   }
 
+  async function deleteForMe(messageId) {
+    setMessages(prev => prev.filter(m => m.id !== messageId));
+  }
+
   /* ===================== CALL FUNCTIONS ===================== */
   async function acceptCall() {
     if (!incomingCall?.id) return;
 
     const callId = incomingCall.id;
-    const callType = incomingCall.type;
-    const offer = incomingCall.offer;
+    const type = incomingCall.type;
 
     setIncomingCall(null);
     setActiveCallId(callId);
+    setCallType(type);
+    setCallStatus("connecting");
 
     pcRef.current = createPeerConnection({
       localVideoRef,
@@ -658,7 +710,7 @@ export default function ChatLayout() {
     });
 
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: callType === "video",
+      video: type === "video",
       audio: true,
     });
 
@@ -666,9 +718,9 @@ export default function ChatLayout() {
       pcRef.current.addTrack(track, stream)
     );
 
-    if (offer) {
+    if (incomingCall.offer) {
       await pcRef.current.setRemoteDescription(
-        new RTCSessionDescription(offer)
+        new RTCSessionDescription(incomingCall.offer)
       );
     }
 
@@ -679,6 +731,9 @@ export default function ChatLayout() {
       .from("calls")
       .update({ status: "accepted", answer })
       .eq("id", callId);
+
+    setCallStatus("connected");
+    startCallTimer();
   }
 
   async function rejectCall() {
@@ -690,6 +745,7 @@ export default function ChatLayout() {
       .eq("id", incomingCall.id);
 
     setIncomingCall(null);
+    setCallType(null);
   }
 
   async function startVoiceCall() {
@@ -708,6 +764,8 @@ export default function ChatLayout() {
     if (error) return;
 
     setActiveCallId(data.id);
+    setCallType("voice");
+    setCallStatus("ringing");
 
     pcRef.current = createPeerConnection({
       localVideoRef,
@@ -754,6 +812,8 @@ export default function ChatLayout() {
 
     const callId = data.id;
     setActiveCallId(callId);
+    setCallType("video");
+    setCallStatus("ringing");
 
     pcRef.current = createPeerConnection({
       localVideoRef,
@@ -781,6 +841,30 @@ export default function ChatLayout() {
       .eq("id", callId);
   }
 
+  function toggleMute() {
+    if (pcRef.current) {
+      const senders = pcRef.current.getSenders();
+      senders.forEach(sender => {
+        if (sender.track && sender.track.kind === 'audio') {
+          sender.track.enabled = !sender.track.enabled;
+          setIsMuted(!sender.track.enabled);
+        }
+      });
+    }
+  }
+
+  function toggleVideo() {
+    if (pcRef.current) {
+      const senders = pcRef.current.getSenders();
+      senders.forEach(sender => {
+        if (sender.track && sender.track.kind === 'video') {
+          sender.track.enabled = !sender.track.enabled;
+          setIsVideoOff(!sender.track.enabled);
+        }
+      });
+    }
+  }
+
   async function endCall() {
     await supabase
       .from("calls")
@@ -796,6 +880,11 @@ export default function ChatLayout() {
       pcRef.current = null;
     }
 
+    if (callTimerRef.current) {
+      clearInterval(callTimerRef.current);
+      callTimerRef.current = null;
+    }
+
     localVideoRef.current?.srcObject
       ?.getTracks()
       .forEach(t => t.stop());
@@ -804,6 +893,11 @@ export default function ChatLayout() {
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
 
     setActiveCallId(null);
+    setCallType(null);
+    setCallStatus(null);
+    setCallDuration("00:00");
+    setIsMuted(false);
+    setIsVideoOff(false);
   }
 
   /* ===================== CONVERSATION MANAGEMENT ===================== */
@@ -845,6 +939,7 @@ export default function ChatLayout() {
       ],
       otherUser,
       lastMessage: null,
+      lastMessagePreview: 'No messages yet',
       lastMessageTime: null,
       unreadCount: 0,
       pinned: false,
@@ -899,6 +994,8 @@ export default function ChatLayout() {
     setConversations(prev => prev.map(c => 
       c.id === conversationId ? { ...c, ...settings } : c
     ));
+    
+    setChatSettings(prev => ({ ...prev, ...settings }));
   }
 
   /* ===================== TYPING HANDLER ===================== */
@@ -1166,7 +1263,7 @@ export default function ChatLayout() {
           {reactions.length > 0 && (
             <div className="message-reactions">
               {reactions.map((r, i) => (
-                <span key={i} className="reaction-emoji" title={r.username}>
+                <span key={i} className="reaction-emoji" title={r.profiles?.username}>
                   {r.emoji}
                 </span>
               ))}
@@ -1175,8 +1272,8 @@ export default function ChatLayout() {
         </div>
 
         <div className="message-footer">
-          {!isMe && message.sender_id && (
-            <span className="sender-name">{message.sender_name}</span>
+          {!isMe && message.sender && (
+            <span className="sender-name">{message.sender.username}</span>
           )}
           <span className="time">
             {isMe && (message.pending ? '⏳ ' : message.read_at ? '✔✔ ' : '✔ ')}
@@ -1225,7 +1322,7 @@ export default function ChatLayout() {
   return (
     <div className="chat-app">
       {/* SIDEBAR */}
-      <aside className={`sidebar ${sidebarOpen ? 'open' : 'hidden'}`}>
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
           <div className="sidebar-header-left">
             <img src="/photogram-logo.png" alt="Photogram" className="sidebar-logo" />
@@ -1237,7 +1334,7 @@ export default function ChatLayout() {
               const current = document.body.dataset.theme || 'dark';
               const next = themes[(themes.indexOf(current) + 1) % themes.length];
               document.body.dataset.theme = next;
-            }}>
+            }} title="Change theme">
               🎨
             </button>
             <button className="close-sidebar" onClick={() => setSidebarOpen(false)}>✕</button>
@@ -1312,7 +1409,7 @@ export default function ChatLayout() {
                           src={avatar || '/default-avatar.png'}
                           alt={name}
                         />
-                        {isOnline && <span className="online-dot" />}
+                        {isOnline && <span className="online-dot" title="Online" />}
                       </>
                     )}
                     {convo.unreadCount > 0 && (
@@ -1336,21 +1433,17 @@ export default function ChatLayout() {
                       <span className="preview">
                         {isTyping ? (
                           <span className="typing-text">typing...</span>
-                        ) : convo.lastMessage ? (
-                          convo.lastMessage.type === 'text' 
-                            ? '💬 Message' 
-                            : convo.lastMessage.type === 'image'
-                              ? '📷 Photo'
-                              : convo.lastMessage.type === 'voice'
-                                ? '🎤 Voice message'
-                                : '📎 File'
+                        ) : convo.lastMessagePreview ? (
+                          convo.lastMessagePreview
                         ) : (
                           'No messages yet'
                         )}
                       </span>
 
-                      {convo.muted && <span className="muted-icon">🔕</span>}
-                      {convo.pinned && <span className="pinned-icon">📌</span>}
+                      <div className="chat-icons">
+                        {convo.muted && <span className="muted-icon" title="Muted">🔕</span>}
+                        {convo.pinned && <span className="pinned-icon" title="Pinned">📌</span>}
+                      </div>
                     </div>
                   </div>
 
@@ -1361,6 +1454,7 @@ export default function ChatLayout() {
                       setActiveProfile(convo);
                       setShowProfileSidebar(true);
                     }}
+                    title="Chat options"
                   >
                     ⋮
                   </button>
@@ -1647,7 +1741,7 @@ export default function ChatLayout() {
         </div>
       )}
 
-      {/* INCOMING CALL OVERLAY */}
+      {/* INCOMING CALL OVERLAY - WhatsApp Style */}
       {incomingCall && (
         <div className="call-overlay">
           <div className="call-card">
@@ -1658,34 +1752,111 @@ export default function ChatLayout() {
                 className="caller-avatar"
               />
               <h2>Incoming {incomingCall.type} call</h2>
-              <p>from {activeUser?.username}</p>
+              <p>{activeUser?.username} is calling you</p>
+              <div className="call-type-badge">
+                <span>{incomingCall.type === 'video' ? '📹' : '📞'}</span>
+                <span>{incomingCall.type === 'video' ? 'Video Call' : 'Voice Call'}</span>
+              </div>
             </div>
             <div className="call-actions">
               <button className="accept-call" onClick={acceptCall}>
-                Accept
+                <span>📞</span> Accept
               </button>
               <button className="reject-call" onClick={rejectCall}>
-                Decline
+                <span>❌</span> Decline
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ACTIVE CALL UI */}
+      {/* ACTIVE CALL UI - WhatsApp Style */}
       {activeCallId && (
         <div className="active-call">
-          <div className="video-container">
-            <video ref={localVideoRef} autoPlay muted playsInline className="local-video" />
-            <video ref={remoteVideoRef} autoPlay playsInline className="remote-video" />
+          <div className="call-status-bar">
+            <div className="call-status-left">
+              <span>Calling</span>
+              <strong>{activeUser?.username}</strong>
+            </div>
+            <div className="call-timer">{callDuration}</div>
+            <div className="call-quality">
+              <span className="dot"></span>
+              <span>Excellent</span>
+            </div>
           </div>
-          <button className="end-call" onClick={endCall}>
-            End Call
-          </button>
+
+          {callType === 'video' ? (
+            <div className="video-container">
+              <video 
+                ref={localVideoRef} 
+                autoPlay 
+                muted 
+                playsInline 
+                className="local-video" 
+              />
+              <video 
+                ref={remoteVideoRef} 
+                autoPlay 
+                playsInline 
+                className="remote-video" 
+              />
+            </div>
+          ) : (
+            <div className="voice-call-container">
+              <img 
+                src={activeUser?.avatar_url || '/default-avatar.png'} 
+                alt={activeUser?.username}
+                className="voice-call-avatar"
+              />
+              <h2 className="voice-call-name">{activeUser?.username}</h2>
+              <p className="voice-call-status">
+                {callStatus === 'ringing' ? 'Ringing...' : 
+                 callStatus === 'connecting' ? 'Connecting...' : 
+                 'Connected'}
+              </p>
+              {callStatus === 'connected' && (
+                <div className="voice-wave">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="call-controls">
+            <button 
+              className={`call-control-btn ${isMuted ? 'mic-off' : ''}`}
+              onClick={toggleMute}
+              title={isMuted ? 'Unmute' : 'Mute'}
+            >
+              {isMuted ? '🔇' : '🎤'}
+            </button>
+            
+            {callType === 'video' && (
+              <button 
+                className={`call-control-btn ${isVideoOff ? 'video-off' : ''}`}
+                onClick={toggleVideo}
+                title={isVideoOff ? 'Turn on video' : 'Turn off video'}
+              >
+                {isVideoOff ? '📹' : '🎥'}
+              </button>
+            )}
+            
+            <button 
+              className="end-call-btn"
+              onClick={endCall}
+              title="End call"
+            >
+              📞
+            </button>
+          </div>
         </div>
       )}
 
-      {/* STORY VIEWER */}
+      {/* STORY VIEWER - Instagram Style */}
       {showStoryViewer && userStories.length > 0 && (
         <div className="story-viewer">
           <button className="close-story" onClick={() => setShowStoryViewer(false)}>
