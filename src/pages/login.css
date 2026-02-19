@@ -1,82 +1,610 @@
+/* ================= LOGIN PAGE - INSTAGRAM-WHATSAPP HYBRID ================= */
+:root {
+  /* WhatsApp Colors */
+  --wa-green: #25d366;
+  --wa-dark-green: #075e54;
+  --wa-teal: #128C7E;
+  
+  /* Instagram Gradient */
+  --ig-gradient: linear-gradient(45deg, #405de6, #5851db, #833ab4, #c13584, #e1306c, #fd1d1d);
+  --ig-purple: #833ab4;
+  --ig-pink: #e1306c;
+  --ig-blue: #405de6;
+  --ig-orange: #fd1d1d;
+  
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-xxl: 32px;
+  --space-xxxl: 48px;
+  
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-ig: 0 10px 25px -5px rgba(225, 48, 108, 0.4);
+  
+  /* Border Radius */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+  
+  /* Transitions */
+  --transition-fast: 0.2s ease;
+  --transition-base: 0.3s ease;
+  --transition-slow: 0.5s ease;
+}
+
+/* ================= LOGIN PAGE ================= */
 .login-page {
   min-height: 100vh;
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(
-    135deg,
-    #075e54,
-    #25d366
-  );
+  background: linear-gradient(135deg, #0b141a 0%, #1a2a33 100%);
+  position: relative;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
+/* Animated background pattern */
+.login-page::before {
+  content: '';
+  position: absolute;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle at 30% 30%, rgba(37, 211, 102, 0.1) 0%, transparent 50%),
+              radial-gradient(circle at 70% 70%, rgba(225, 48, 108, 0.1) 0%, transparent 50%);
+  animation: rotate 60s linear infinite;
+  z-index: 1;
+}
+
+.login-page::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  opacity: 0.5;
+  z-index: 1;
+}
+
+/* ================= LOGIN CARD ================= */
 .login-card {
-  background: #ffffff;
-  color: #111;
-  padding: 3rem 2.5rem;
-  width: 380px;
-  border-radius: 16px;
-  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.25);
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  padding: var(--space-xxxl) var(--space-xxl);
+  width: 420px;
+  max-width: 90%;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(255, 255, 255, 0.1);
   text-align: center;
   animation: slideUp 0.6s ease;
+  position: relative;
+  z-index: 2;
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
+/* Card gradient border effect */
+.login-card::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  background: var(--ig-gradient);
+  border-radius: calc(var(--radius-xl) + 2px);
+  z-index: -1;
+  animation: borderRotate 4s linear infinite;
+  opacity: 0;
+  transition: opacity var(--transition-base);
+}
+
+.login-card:hover::before {
+  opacity: 1;
+}
+
+/* ================= APP TITLE ================= */
 .app-title {
-  font-size: 2rem;
+  font-size: 3rem;
   font-weight: 700;
-  margin: 0;
-}
-
-.app-title span {
-  font-size: 1.8rem;
-}
-
-.app-subtitle {
-  margin-top: 0.5rem;
-  font-size: 0.95rem;
-  color: #555;
-}
-
-.google-btn {
-  margin-top: 2rem;
-  width: 100%;
-  padding: 0.75rem;
+  margin: 0 0 var(--space-sm);
+  background: linear-gradient(135deg, var(--wa-dark-green), var(--wa-green), var(--ig-pink), var(--ig-purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  background-size: 300% 300%;
+  animation: gradientShift 8s ease infinite;
+  letter-spacing: -1px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  font-size: 1rem;
-  color: #111;
-  border-radius: 10px;
-  background: #ffffff;
-  border: 1px solid #ddd;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  gap: var(--space-xs);
 }
 
-.google-btn img {
-  width: 20px;
+.app-title span {
+  font-size: 2.8rem;
+  animation: float 3s ease-in-out infinite;
+  display: inline-block;
+}
+
+/* ================= APP SUBTITLE ================= */
+.app-subtitle {
+  margin-top: var(--space-sm);
+  font-size: 1rem;
+  color: #666;
+  line-height: 1.6;
+  max-width: 300px;
+  margin-left: auto;
+  margin-right: auto;
+  position: relative;
+  padding-bottom: var(--space-lg);
+}
+
+.app-subtitle::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 50px;
+  height: 3px;
+  background: var(--ig-gradient);
+  border-radius: var(--radius-full);
+  animation: widthPulse 2s ease-in-out infinite;
+}
+
+/* ================= FEATURE BADGES ================= */
+.feature-badges {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-md);
+  margin: var(--space-xl) 0;
+}
+
+.feature-badge {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, #f5f5f5, #ffffff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-fast);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.feature-badge:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-md);
+}
+
+.feature-badge:nth-child(1):hover { background: #25d366; color: white; }
+.feature-badge:nth-child(2):hover { background: #405de6; color: white; }
+.feature-badge:nth-child(3):hover { background: #833ab4; color: white; }
+.feature-badge:nth-child(4):hover { background: #fd1d1d; color: white; }
+
+/* ================= GOOGLE BUTTON ================= */
+.google-btn {
+  margin-top: var(--space-xl);
+  width: 100%;
+  padding: var(--space-md) var(--space-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  font-size: 1rem;
+  font-weight: 500;
+  color: #333;
+  border-radius: var(--radius-full);
+  background: white;
+  border: 1px solid #e0e0e0;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.google-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  transition: left 0.5s ease;
 }
 
 .google-btn:hover {
-  background: #f6f6f6;
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md), 0 0 0 2px rgba(37, 211, 102, 0.3);
+  border-color: transparent;
 }
 
+.google-btn:hover::before {
+  left: 100%;
+}
+
+.google-btn:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+.google-btn img {
+  width: 24px;
+  height: 24px;
+  transition: transform var(--transition-fast);
+}
+
+.google-btn:hover img {
+  transform: rotate(360deg);
+}
+
+/* ================= DIVIDER ================= */
+.divider {
+  display: flex;
+  align-items: center;
+  margin: var(--space-xl) 0 var(--space-lg);
+  color: #999;
+  font-size: 0.9rem;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #ddd, transparent);
+}
+
+.divider span {
+  padding: 0 var(--space-md);
+  font-weight: 500;
+}
+
+/* ================= SOCIAL LOGIN OPTIONS ================= */
+.social-login {
+  display: flex;
+  gap: var(--space-md);
+  margin-bottom: var(--space-xl);
+}
+
+.social-btn {
+  flex: 1;
+  padding: var(--space-md);
+  border: 1px solid #e0e0e0;
+  border-radius: var(--radius-md);
+  background: white;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.social-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.social-btn.github:hover {
+  background: #333;
+  color: white;
+  border-color: #333;
+}
+
+.social-btn.github:hover svg {
+  fill: white;
+}
+
+.social-btn svg {
+  width: 20px;
+  height: 20px;
+  transition: fill var(--transition-fast);
+}
+
+/* ================= LOGIN FOOTER ================= */
 .login-footer {
-  margin-top: 1.8rem;
-  font-size: 0.8rem;
-  color: #777;
+  margin-top: var(--space-xl);
+  font-size: 0.85rem;
+  color: #888;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding-top: var(--space-lg);
+  border-top: 1px solid #f0f0f0;
 }
 
+.login-footer span {
+  animation: pulse 2s infinite;
+}
+
+/* ================= TERMS LINK ================= */
+.terms-link {
+  margin-top: var(--space-lg);
+  font-size: 0.8rem;
+  color: #999;
+}
+
+.terms-link a {
+  color: var(--ig-pink);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color var(--transition-fast);
+}
+
+.terms-link a:hover {
+  color: var(--ig-purple);
+  text-decoration: underline;
+}
+
+/* ================= DECORATIVE ELEMENTS ================= */
+.decorative-circle {
+  position: absolute;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: var(--ig-gradient);
+  filter: blur(80px);
+  opacity: 0.15;
+  z-index: 1;
+  animation: moveAround 20s infinite alternate;
+}
+
+.circle-1 {
+  top: -100px;
+  left: -100px;
+  animation-delay: 0s;
+}
+
+.circle-2 {
+  bottom: -100px;
+  right: -100px;
+  width: 400px;
+  height: 400px;
+  animation-delay: -5s;
+}
+
+/* ================= ANIMATIONS ================= */
 @keyframes slideUp {
   from {
     opacity: 0;
-    transform: translateY(25px);
+    transform: translateY(30px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes widthPulse {
+  0%, 100% {
+    width: 50px;
+  }
+  50% {
+    width: 80px;
+  }
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes borderRotate {
+  0% {
+    filter: hue-rotate(0deg);
+  }
+  100% {
+    filter: hue-rotate(360deg);
+  }
+}
+
+@keyframes moveAround {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    transform: translate(100px, 50px) scale(1.2);
+  }
+}
+
+/* ================= LOADING STATE ================= */
+.login-card.loading {
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid var(--ig-pink);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-right: var(--space-sm);
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ================= ERROR MESSAGE ================= */
+.error-message {
+  background: #ffebee;
+  color: #c62828;
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-lg);
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  border-left: 4px solid #c62828;
+  animation: shake 0.5s ease;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+/* ================= RESPONSIVE DESIGN ================= */
+@media (max-width: 480px) {
+  .login-card {
+    padding: var(--space-xl) var(--space-lg);
+  }
+  
+  .app-title {
+    font-size: 2.5rem;
+  }
+  
+  .app-title span {
+    font-size: 2.3rem;
+  }
+  
+  .feature-badges {
+    gap: var(--space-sm);
+  }
+  
+  .feature-badge {
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+  }
+  
+  .social-login {
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+  
+  .google-btn {
+    padding: var(--space-sm) var(--space-md);
+  }
+  
+  .decorative-circle {
+    width: 200px;
+    height: 200px;
+    filter: blur(60px);
+  }
+}
+
+@media (max-width: 360px) {
+  .login-card {
+    padding: var(--space-lg);
+  }
+  
+  .app-title {
+    font-size: 2rem;
+    flex-direction: column;
+  }
+  
+  .app-title span {
+    font-size: 2rem;
+  }
+  
+  .feature-badges {
+    flex-wrap: wrap;
+  }
+}
+
+/* ================= DARK MODE SUPPORT ================= */
+@media (prefers-color-scheme: dark) {
+  .login-page {
+    background: linear-gradient(135deg, #0a0f14 0%, #1a242b 100%);
+  }
+  
+  .login-card {
+    background: rgba(30, 30, 30, 0.95);
+  }
+  
+  .app-subtitle {
+    color: #aaa;
+  }
+  
+  .feature-badge {
+    background: linear-gradient(135deg, #2a2a2a, #333);
+    color: #ddd;
+    border-color: #444;
+  }
+  
+  .google-btn {
+    background: #2a2a2a;
+    color: #ddd;
+    border-color: #444;
+  }
+  
+  .social-btn {
+    background: #2a2a2a;
+    border-color: #444;
+    color: #aaa;
+  }
+  
+  .social-btn svg {
+    fill: #aaa;
+  }
+  
+  .login-footer {
+    color: #666;
+    border-top-color: #333;
+  }
+  
+  .divider::before,
+  .divider::after {
+    background: linear-gradient(90deg, transparent, #444, transparent);
+  }
+  
+  .terms-link {
+    color: #666;
+  }
+  
+  .error-message {
+    background: #4a2a2a;
+    color: #ff8a80;
+    border-left-color: #ff5252;
   }
 }
